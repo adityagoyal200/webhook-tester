@@ -6,6 +6,7 @@ import WebhookHeader from './components/WebhookHeader';
 import RequestFilters from './components/RequestFilters';
 import RequestTable from './components/RequestTable';
 import RealTimeIndicator from './components/RealTimeIndicator';
+import WebhookTestModal from './components/WebhookTestModal';
 
 type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
@@ -199,6 +200,7 @@ const WebhookDetails = () => {
   const [filteredRequests, setFilteredRequests] = useState<RequestRecord[]>(allRequests);
   const [isConnected, setIsConnected] = useState(true);
   const [newRequestsCount, setNewRequestsCount] = useState(0);
+  const [showTestModal, setShowTestModal] = useState(false);
 
   // Filter requests based on current filters
   useEffect(() => {

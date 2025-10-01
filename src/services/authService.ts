@@ -143,12 +143,36 @@ export const authService = {
     }
   },
 
-  // Update password
-  async updatePassword(password: string) {
+  // Update password with current password verification
+  async updatePassword({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }) {
     try {
-      const { data, error } = await supabase?.auth?.updateUser({
-        password
+      // First verify the current password by attempting to sign in
+      const { data: { user } } = await supabase?.auth?.getUser();
+      if (!user?.email) {
+        return { 
+          data: null, 
+          error: { message: 'No authenticated user found' }
+        };
+      }
+
+      // Verify current password
+      const { error: signInError } = await supabase?.auth?.signInWithPassword({
+        email: user.email,
+        password: currentPassword
       });
+
+      if (signInError) {
+        return { 
+          data: null, 
+          error: { message: 'Current password is incorrect' }
+        };
+      }
+
+      // Update to new password
+      const { data, error } = await supabase?.auth?.updateUser({
+        password: newPassword
+      });
+      
       return { data, error };
     } catch (error) {
       return { 

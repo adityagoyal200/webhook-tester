@@ -16,9 +16,10 @@ interface WebhookHeaderProps {
   webhook: WebhookSummary;
   onCopyUrl: () => Promise<void> | void;
   onDeleteWebhook: () => void;
+  onTestWebhook?: () => void;
 }
 
-const WebhookHeader = ({ webhook, onCopyUrl, onDeleteWebhook }: WebhookHeaderProps) => {
+const WebhookHeader = ({ webhook, onCopyUrl, onDeleteWebhook, onTestWebhook }: WebhookHeaderProps) => {
   const [copied, setCopied] = useState(false);
 
   const handleCopyUrl = async () => {
@@ -103,6 +104,13 @@ const WebhookHeader = ({ webhook, onCopyUrl, onDeleteWebhook }: WebhookHeaderPro
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2">
+          <Button
+            variant="default"
+            iconName="Play"
+            onClick={onTestWebhook}
+          >
+            Test Webhook
+          </Button>
           <Button
             variant="outline"
             iconName="Settings"

@@ -9,7 +9,10 @@ create table if not exists public.webhooks (
   description text,
   url text not null,
   status text default 'active',
-  created_at timestamp with time zone default now()
+  secret_key text,
+  settings jsonb,
+  created_at timestamp with time zone default now(),
+  updated_at timestamp with time zone default now()
 );
 
 -- Requests table
@@ -18,10 +21,12 @@ create table if not exists public.webhook_requests (
   webhook_id uuid not null references public.webhooks(id) on delete cascade,
   method text not null,
   status integer not null,
-  ip text,
+  ip_address text,
   user_agent text,
   headers jsonb,
   payload jsonb,
+  response_status integer,
+  processing_time_ms integer,
   created_at timestamp with time zone default now()
 );
 
@@ -44,6 +49,8 @@ create table if not exists public.user_profiles (
   full_name text,
   avatar_url text,
   subscription_tier text default 'free',
+  webhook_limit integer default 5,
+  request_limit integer default 1000,
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
 );

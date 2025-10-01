@@ -1,11 +1,18 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../../contexts/AuthContext';
+import { webhookService } from '../../../services/webhookService';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 
 const WebhookManagementSection = () => {
-  const [selectedWebhooks, setSelectedWebhooks] = useState([]);
+  const { user } = useAuth();
+  const [selectedWebhooks, setSelectedWebhooks] = useState<string[]>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [webhooks, setWebhooks] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [notificationSettings, setNotificationSettings] = useState({
     emailNotifications: true,
     browserNotifications: false,
@@ -13,31 +20,37 @@ const WebhookManagementSection = () => {
     dailyDigest: false
   });
 
-  const mockWebhooks = [
-    {
-      id: 'wh_1',
-      name: 'Payment Gateway',
-      url: 'https://hook.catch/wh_payment_123',
-      requests: 1247,
-      lastUsed: '2 hours ago'
-    },
-    {
-      id: 'wh_2',
-      name: 'User Registration',
-      url: 'https://hook.catch/wh_users_456',
-      requests: 89,
-      lastUsed: '1 day ago'
-    },
-    {
-      id: 'wh_3',
-      name: 'Order Processing',
-      url: 'https://hook.catch/wh_orders_789',
-      requests: 567,
-      lastUsed: '3 hours ago'
-    }
-  ];
+  // Load real webhook data
+  useEffect(() => {
+    const loadWebhooks = async () => {
+      if (!user?.id) return;
 
-  const handleWebhookSelect = (webhookId) => {
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const { data, error: webhooksError } = await webhookService.getWebhooks(user.id);
+        
+        if (webhooksError) {
+          setError(webhooksError.message || 'Failed to load webhooks');
+          return;
+        }
+
+        if (data) {
+          setWebhooks(data);
+        }
+      } catch (err) {
+        console.error('Error loading webhooks:', err);
+        setError('Failed to load webhooks');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadWebhooks();
+  }, [user?.id]);
+
+  const handleWebhookSelect = (webhookId: string) => {
     setSelectedWebhooks(prev => 
       prev?.includes(webhookId) 
         ? prev?.filter(id => id !== webhookId)
@@ -47,21 +60,66 @@ const WebhookManagementSection = () => {
 
   const handleSelectAll = () => {
     setSelectedWebhooks(
-      selectedWebhooks?.length === mockWebhooks?.length 
+      selectedWebhooks?.length === webhooks?.length 
         ? [] 
-        : mockWebhooks?.map(wh => wh?.id)
+        : webhooks?.map(wh => wh?.id) || []
     );
   };
 
-  const handleBulkDelete = () => {
-    console.log('Deleting webhooks:', selectedWebhooks);
-    setSelectedWebhooks([]);
-    setShowBulkDeleteConfirm(false);
+  const handleBulkDelete = async () => {
+    if (selectedWebhooks.length === 0) return;
+
+    setIsDeleting(true);
+    setError(null);
+
+    try {
+      // Delete each selected webhook
+      for (const webhookId of selectedWebhooks) {
+        const { error: deleteError } = await webhookService.deleteWebhook(webhookId);
+        if (deleteError) {
+          console.error('Failed to delete webhook:', webhookId, deleteError);
+        }
+      }
+
+      // Remove deleted webhooks from local state
+      setWebhooks(prev => prev?.filter(wh => !selectedWebhooks?.includes(wh?.id)));
+      setSelectedWebhooks([]);
+      setShowBulkDeleteConfirm(false);
+    } catch (err) {
+      console.error('Bulk delete error:', err);
+      setError('Failed to delete some webhooks. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleExportData = () => {
-    console.log('Exporting webhook data...');
-    // Mock export functionality
+    try {
+      const exportData = {
+        webhooks: webhooks.map(wh => ({
+          id: wh.id,
+          name: wh.name,
+          url: wh.url,
+          status: wh.status,
+          created_at: wh.created_at
+        })),
+        exportDate: new Date().toISOString(),
+        totalWebhooks: webhooks.length
+      };
+
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `webhooks-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Export error:', err);
+      setError('Failed to export data');
+    }
   };
 
   const handleNotificationChange = (setting) => {
@@ -114,26 +172,57 @@ const WebhookManagementSection = () => {
         </div>
 
         {/* Webhook List */}
-        <div className="border border-border rounded-lg overflow-hidden">
-          {mockWebhooks?.map((webhook) => (
-            <div key={webhook?.id} className="flex items-center space-x-4 p-4 border-b border-border last:border-b-0 hover:bg-muted/50">
-              <Checkbox
-                checked={selectedWebhooks?.includes(webhook?.id)}
-                onChange={() => handleWebhookSelect(webhook?.id)}
-              />
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center space-x-2">
-                  <h4 className="font-medium text-foreground truncate">{webhook?.name}</h4>
-                  <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
-                    {webhook?.requests} requests
-                  </span>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            <span className="ml-2 text-muted-foreground">Loading webhooks...</span>
+          </div>
+        ) : error ? (
+          <div className="p-3 bg-error/10 border border-error/20 rounded-lg flex items-center space-x-2">
+            <Icon name="AlertTriangle" size={16} className="text-error" />
+            <span className="text-sm text-error">{error}</span>
+          </div>
+        ) : webhooks?.length === 0 ? (
+          <div className="text-center py-8">
+            <Icon name="Webhook" size={32} className="text-muted-foreground mx-auto mb-2" />
+            <p className="text-muted-foreground">No webhooks created yet</p>
+            <Button
+              onClick={() => window.location.href = '/create-webhook'}
+              variant="outline"
+              size="sm"
+              className="mt-2"
+            >
+              Create your first webhook
+            </Button>
+          </div>
+        ) : (
+          <div className="border border-border rounded-lg overflow-hidden">
+            {webhooks?.map((webhook) => (
+              <div key={webhook?.id} className="flex items-center space-x-4 p-4 border-b border-border last:border-b-0 hover:bg-muted/50">
+                <Checkbox
+                  checked={selectedWebhooks?.includes(webhook?.id)}
+                  onChange={() => handleWebhookSelect(webhook?.id)}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center space-x-2">
+                    <h4 className="font-medium text-foreground truncate">{webhook?.name}</h4>
+                    <span className={`text-xs px-2 py-1 rounded ${
+                      webhook?.status === 'active' 
+                        ? 'bg-success/10 text-success' 
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {webhook?.status}
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground truncate">{webhook?.url}</p>
+                  <p className="text-xs text-muted-foreground">
+                    Created {new Date(webhook?.created_at)?.toLocaleDateString()}
+                  </p>
                 </div>
-                <p className="text-sm text-muted-foreground truncate">{webhook?.url}</p>
-                <p className="text-xs text-muted-foreground">Last used {webhook?.lastUsed}</p>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
       {/* Notification Preferences */}
       <div className="border-t border-border pt-6">
@@ -189,13 +278,15 @@ const WebhookManagementSection = () => {
                 variant="destructive" 
                 onClick={handleBulkDelete}
                 size="sm"
+                disabled={isDeleting}
               >
-                Yes, Delete Webhooks
+                {isDeleting ? 'Deleting...' : 'Yes, Delete Webhooks'}
               </Button>
               <Button 
                 variant="outline" 
                 onClick={() => setShowBulkDeleteConfirm(false)}
                 size="sm"
+                disabled={isDeleting}
               >
                 Cancel
               </Button>

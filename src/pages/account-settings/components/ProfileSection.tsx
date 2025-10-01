@@ -1,47 +1,125 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { userService } from '../../../services/userService';
+import { authService } from '../../../services/authService';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 
 const ProfileSection = () => {
   const navigate = useNavigate();
-  const { user, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [formData, setFormData] = useState({
-    email: 'developer@example.com',
+    email: user?.email || '',
+    fullName: profile?.full_name || '',
     currentPassword: '',
     newPassword: '',
     confirmPassword: ''
   });
+
+  // Update form data when user or profile changes
+  useEffect(() => {
+    if (user?.email || profile?.full_name) {
+      setFormData(prev => ({
+        ...prev,
+        email: user?.email || prev.email,
+        fullName: profile?.full_name || prev.fullName
+      }));
+    }
+  }, [user?.email, profile?.full_name]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
       [e?.target?.name]: e?.target?.value
     });
+    // Clear errors when user starts typing
+    if (error) setError(null);
   };
 
-  const handleSaveProfile = () => {
-    // Mock save functionality
-    setIsEditing(false);
-    console.log('Profile saved:', formData);
+  const handleSaveProfile = async () => {
+    if (!user?.id) {
+      setError('No authenticated user found');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+    setSuccess(null);
+
+    try {
+      const { error: updateError } = await userService.updateUserProfile(user.id, {
+        full_name: formData.fullName,
+        email: formData.email
+      });
+
+      if (updateError) {
+        setError(updateError.message || 'Failed to update profile');
+        return;
+      }
+
+      setSuccess('Profile updated successfully');
+      setIsEditing(false);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      console.error('Profile update error:', err);
+      setError('Failed to update profile. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handlePasswordChange = () => {
-    // Mock password change
-    setShowPasswordChange(false);
-    setFormData({
-      ...formData,
-      currentPassword: '',
-      newPassword: '',
-      confirmPassword: ''
-    });
-    console.log('Password changed successfully');
+  const handlePasswordChange = async () => {
+    if (formData.newPassword !== formData.confirmPassword) {
+      setError('New passwords do not match');
+      return;
+    }
+
+    if (formData.newPassword.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const { error: passwordError } = await authService.updatePassword({
+        currentPassword: formData.currentPassword,
+        newPassword: formData.newPassword
+      });
+
+      if (passwordError) {
+        setError(passwordError.message || 'Failed to update password');
+        return;
+      }
+
+      setSuccess('Password updated successfully');
+      setShowPasswordChange(false);
+      setFormData({
+        ...formData,
+        currentPassword: '',
+        newPassword: '',
+        confirmPassword: ''
+      });
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      console.error('Password update error:', err);
+      setError('Failed to update password. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleDeleteAccount = async () => {
@@ -87,6 +165,31 @@ const ProfileSection = () => {
         </Button>
       </div>
       <div className="space-y-4">
+        {/* Error/Success Messages */}
+        {error && (
+          <div className="p-3 bg-error/10 border border-error/20 rounded-lg flex items-center space-x-2">
+            <Icon name="AlertTriangle" size={16} className="text-error" />
+            <span className="text-sm text-error">{error}</span>
+          </div>
+        )}
+        
+        {success && (
+          <div className="p-3 bg-success/10 border border-success/20 rounded-lg flex items-center space-x-2">
+            <Icon name="Check" size={16} className="text-success" />
+            <span className="text-sm text-success">{success}</span>
+          </div>
+        )}
+
+        <Input
+          label="Full Name"
+          type="text"
+          name="fullName"
+          value={formData?.fullName}
+          onChange={handleInputChange}
+          disabled={!isEditing}
+          placeholder="Enter your full name"
+        />
+
         <Input
           label="Email Address"
           type="email"
@@ -99,14 +202,19 @@ const ProfileSection = () => {
 
         {isEditing && (
           <div className="flex space-x-3 pt-4">
-            <Button onClick={handleSaveProfile} size="sm">
-              Save Changes
+            <Button 
+              onClick={handleSaveProfile} 
+              size="sm"
+              disabled={isLoading}
+            >
+              {isLoading ? 'Saving...' : 'Save Changes'}
             </Button>
             <Button 
               variant="outline" 
               onClick={() => setShowPasswordChange(true)}
               iconName="Key"
               size="sm"
+              disabled={isLoading}
             >
               Change Password
             </Button>
@@ -156,13 +264,18 @@ const ProfileSection = () => {
               </div>
 
               <div className="flex space-x-3 mt-6">
-                <Button onClick={handlePasswordChange} size="sm">
-                  Update Password
+                <Button 
+                  onClick={handlePasswordChange} 
+                  size="sm"
+                  disabled={isLoading}
+                >
+                  {isLoading ? 'Updating...' : 'Update Password'}
                 </Button>
                 <Button 
                   variant="outline" 
                   onClick={() => setShowPasswordChange(false)}
                   size="sm"
+                  disabled={isLoading}
                 >
                   Cancel
                 </Button>

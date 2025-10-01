@@ -1,19 +1,63 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../../contexts/AuthContext';
+import { userService } from '../../../services/userService';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 
 const SubscriptionSection = () => {
-  const [currentTier] = useState('free');
+  const { user, profile } = useAuth();
+  const [currentTier, setCurrentTier] = useState('free');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
-
-  const mockUsageData = {
-    webhooksUsed: 5,
-    webhooksLimit: 10,
-    requestsThisMonth: 1247,
-    requestsLimit: 10000,
-    storageUsed: '2.3 MB',
+  const [usageData, setUsageData] = useState({
+    webhooksUsed: 0,
+    webhooksLimit: 5,
+    requestsThisMonth: 0,
+    requestsLimit: 1000,
+    storageUsed: '0 MB',
     storageLimit: '100 MB'
-  };
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load real usage data
+  useEffect(() => {
+    const loadUsageData = async () => {
+      if (!user?.id) return;
+
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        const { data: limits, error: limitsError } = await userService.checkSubscriptionLimits(user.id);
+        
+        if (limitsError) {
+          setError(limitsError.message || 'Failed to load usage data');
+          return;
+        }
+
+        if (limits) {
+          setUsageData({
+            webhooksUsed: limits.currentWebhooks,
+            webhooksLimit: limits.webhookLimit,
+            requestsThisMonth: limits.currentRequests,
+            requestsLimit: limits.requestLimit,
+            storageUsed: '2.3 MB', // TODO: Calculate actual storage usage
+            storageLimit: '100 MB'
+          });
+        }
+
+        // Set current tier from profile
+        setCurrentTier(profile?.subscription_tier || 'free');
+      } catch (err) {
+        console.error('Error loading usage data:', err);
+        setError('Failed to load usage data');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadUsageData();
+  }, [user?.id, profile?.subscription_tier]);
 
   const tierFeatures = {
     free: [
@@ -88,24 +132,36 @@ const SubscriptionSection = () => {
       {/* Current Usage */}
       <div className="space-y-4 mb-6">
         <h3 className="font-medium text-foreground">Current Usage</h3>
-        <div className="grid gap-4">
-          <UsageBar 
-            label="Webhook URLs" 
-            used={mockUsageData?.webhooksUsed} 
-            limit={mockUsageData?.webhooksLimit} 
-          />
-          <UsageBar 
-            label="Requests this month" 
-            used={mockUsageData?.requestsThisMonth} 
-            limit={mockUsageData?.requestsLimit} 
-          />
-          <div className="flex justify-between text-sm">
-            <span className="text-muted-foreground">Storage used</span>
-            <span className="font-medium text-foreground">
-              {mockUsageData?.storageUsed} / {mockUsageData?.storageLimit}
-            </span>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            <span className="ml-2 text-muted-foreground">Loading usage data...</span>
           </div>
-        </div>
+        ) : error ? (
+          <div className="p-3 bg-error/10 border border-error/20 rounded-lg flex items-center space-x-2">
+            <Icon name="AlertTriangle" size={16} className="text-error" />
+            <span className="text-sm text-error">{error}</span>
+          </div>
+        ) : (
+          <div className="grid gap-4">
+            <UsageBar 
+              label="Webhook URLs" 
+              used={usageData?.webhooksUsed} 
+              limit={usageData?.webhooksLimit} 
+            />
+            <UsageBar 
+              label="Requests this month" 
+              used={usageData?.requestsThisMonth} 
+              limit={usageData?.requestsLimit} 
+            />
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Storage used</span>
+              <span className="font-medium text-foreground">
+                {usageData?.storageUsed} / {usageData?.storageLimit}
+              </span>
+            </div>
+          </div>
+        )}
       </div>
       {/* Plan Features */}
       <div className="border-t border-border pt-6">
