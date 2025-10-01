@@ -11,6 +11,9 @@ const ThemeSection = () => {
     const savedTheme = localStorage.getItem('theme') || 'system';
     setCurrentTheme(savedTheme);
 
+    // Apply theme immediately on load
+    applyTheme(savedTheme);
+
     // Detect system preference
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     setSystemPreference(mediaQuery?.matches ? 'dark' : 'light');
@@ -18,17 +21,16 @@ const ThemeSection = () => {
     // Listen for system theme changes
     const handleChange = (e) => {
       setSystemPreference(e?.matches ? 'dark' : 'light');
+      if (savedTheme === 'system') {
+        applyTheme('system');
+      }
     };
 
     mediaQuery?.addEventListener('change', handleChange);
     return () => mediaQuery?.removeEventListener('change', handleChange);
   }, []);
 
-  const handleThemeChange = (theme) => {
-    setCurrentTheme(theme);
-    localStorage.setItem('theme', theme);
-
-    // Apply theme to document
+  const applyTheme = (theme) => {
     const root = document.documentElement;
     if (theme === 'dark') {
       root.classList?.add('dark');
@@ -36,12 +38,19 @@ const ThemeSection = () => {
       root.classList?.remove('dark');
     } else {
       // System preference
-      if (systemPreference === 'dark') {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      if (mediaQuery?.matches) {
         root.classList?.add('dark');
       } else {
         root.classList?.remove('dark');
       }
     }
+  };
+
+  const handleThemeChange = (theme) => {
+    setCurrentTheme(theme);
+    localStorage.setItem('theme', theme);
+    applyTheme(theme);
   };
 
   const themeOptions = [

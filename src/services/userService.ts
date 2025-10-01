@@ -1,7 +1,6 @@
 import { supabase } from '../lib/supabase';
 
 export const userService = {
-  // Get user profile
   async getUserProfile(userId: string) {
     try {
       const { data, error } = await supabase
@@ -30,6 +29,40 @@ export const userService = {
         data: null, 
         error: { message: 'Failed to load user profile. Please try again.' }
       };
+    }
+  },
+
+  // Permanently delete all user-owned data (webhooks, requests, analytics, profile)
+  async deleteUserAccount(userId: string) {
+    try {
+      // Delete all webhooks owned by the user. Foreign keys will cascade to requests/analytics.
+      const { error: webhooksError } = await supabase
+        ?.from('webhooks')
+        ?.delete()
+        ?.eq('user_id', userId);
+
+      if (webhooksError) {
+        return { error: webhooksError };
+      }
+
+      // Delete user profile row
+      const { error: profileError } = await supabase
+        ?.from('user_profiles')
+        ?.delete()
+        ?.eq('id', userId);
+
+      if (profileError) {
+        return { error: profileError };
+      }
+
+      return { error: null };
+    } catch (err: unknown) {
+      if (err instanceof Error && err.message?.includes('Failed to fetch')) {
+        return { 
+          error: { message: 'Cannot connect to database. Your Supabase project may be paused or deleted. Please check your Supabase dashboard.' }
+        };
+      }
+      return { error: { message: 'Failed to delete account. Please try again.' } };
     }
   },
 

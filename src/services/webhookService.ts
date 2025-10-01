@@ -114,17 +114,22 @@ export const webhookService = {
   // Delete a webhook
   async deleteWebhook(id: string) {
     try {
+      console.log('WebhookService: Deleting webhook with ID:', id);
+      
       const { error } = await supabase
         ?.from('webhooks')
         ?.delete()
         ?.eq('id', id);
 
       if (error) {
+        console.error('WebhookService: Delete error:', error);
         return { error };
       }
 
+      console.log('WebhookService: Webhook deleted successfully');
       return { error: null };
     } catch (error) {
+      console.error('WebhookService: Delete exception:', error);
       return { 
         error: { message: 'Failed to delete webhook. Please try again.' }
       };

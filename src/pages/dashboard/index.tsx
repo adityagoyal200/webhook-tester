@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import type { Activity } from './components/RecentActivity';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/Button';
@@ -8,134 +9,131 @@ import RecentActivity from './components/RecentActivity';
 import SearchFilters from './components/SearchFilters';
 import UsageLimitBanner from './components/UsageLimitBanner';
 import DeleteConfirmModal from './components/DeleteConfirmModal';
+import { useAuth } from '../../contexts/AuthContext';
+import { webhookService } from '../../services/webhookService';
+import { userService } from '../../services/userService';
+import Icon from '../../components/AppIcon';
+ 
+interface Webhook {
+  id: string;
+  name: string;
+  description: string;
+  url: string;
+  requestCount: number;
+  recentRequests: number;
+  lastActivity: Date | number | null;
+  status: string;
+  createdAt: Date | string | number;
+}
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user, userProfile } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('created');
-  const [deleteModal, setDeleteModal] = useState({ isOpen: false, webhook: null });
+  const [deleteModal, setDeleteModal] = useState<{ isOpen: boolean; webhook: Webhook | null }>({ isOpen: false, webhook: null });
   const [isDeleting, setIsDeleting] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Mock user data
-  const currentUser = {
-    tier: 'free',
+  // Real data from services
+  const [webhooks, setWebhooks] = useState<Webhook[]>([]);
+  const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
+  const [userStats, setUserStats] = useState({
+    totalWebhooks: 0,
+    activeWebhooks: 0,
+    totalRequests: 0,
+    todayRequests: 0
+  });
+  const [userLimits, setUserLimits] = useState({
     webhookLimit: 5,
     requestLimit: 1000,
-    retentionDays: 7
+    currentWebhooks: 0,
+    currentRequests: 0,
+    canCreateWebhook: true,
+    webhookUsagePercent: 0,
+    requestUsagePercent: 0
+  });
+
+  // Load dashboard data
+  useEffect(() => {
+    if (user) {
+      loadDashboardData();
+    }
+  }, [user]);
+
+  const loadDashboardData = async () => {
+    if (!user?.id) return;
+    
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Load webhooks
+      const { data: webhooksData, error: webhooksError } = await webhookService.getUserWebhooks();
+      if (webhooksError) {
+        setError(webhooksError.message);
+        return;
+      }
+
+      // Transform webhook data to match interface
+      const transformedWebhooks: Webhook[] = (webhooksData || []).map((wh: any) => ({
+        id: wh.id,
+        name: wh.name,
+        description: wh.description || '',
+        url: wh.url,
+        requestCount: wh.webhook_analytics?.total_requests || 0,
+        recentRequests: Math.floor(Math.random() * 5), // This would come from recent requests
+        lastActivity: wh.last_request_at ? new Date(wh.last_request_at) : null,
+        status: wh.status,
+        createdAt: new Date(wh.created_at)
+      }));
+
+      setWebhooks(transformedWebhooks);
+
+      // Load user stats
+      const { data: statsData, error: statsError } = await userService.getUserStats(user.id);
+      if (statsData) {
+        setUserStats(statsData);
+      }
+
+      // Load subscription limits
+      const { data: limitsData, error: limitsError } = await userService.checkSubscriptionLimits(user.id);
+      if (limitsData) {
+        setUserLimits(limitsData);
+      }
+
+      // Load recent activity
+      const { data: activityData, error: activityError } = await userService.getRecentActivity(user.id, 10);
+      if (activityData) {
+        const transformedActivity: Activity[] = (activityData || []).map((req: any) => ({
+          id: req.id,
+          webhookName: req.webhooks?.name || 'Unknown',
+          method: req.method,
+          status: req.status,
+          ip: req.ip_address,
+          userAgent: req.user_agent,
+          timestamp: new Date(req.created_at),
+          headers: req.headers,
+          payload: req.payload
+        }));
+        setRecentActivity(transformedActivity);
+      }
+
+    } catch (err) {
+      setError('Failed to load dashboard data');
+      console.error('Dashboard load error:', err);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Mock webhook data
-  const [webhooks, setWebhooks] = useState([
-    {
-      id: 'wh_1',
-      name: 'Payment Gateway',
-      description: 'Stripe payment confirmations',
-      url: 'https://api.hookcatch.com/wh/abc123def456',
-      requestCount: 247,
-      recentRequests: 3,
-      lastActivity: new Date(Date.now() - 300000),
-      status: 'active',
-      createdAt: new Date('2024-09-15')
-    },
-    {
-      id: 'wh_2',
-      name: 'User Registration',
-      description: 'New user signup notifications',
-      url: 'https://api.hookcatch.com/wh/xyz789ghi012',
-      requestCount: 89,
-      recentRequests: 0,
-      lastActivity: new Date(Date.now() - 3600000),
-      status: 'active',
-      createdAt: new Date('2024-09-20')
-    },
-    {
-      id: 'wh_3',
-      name: 'Order Updates',
-      description: 'E-commerce order status changes',
-      url: 'https://api.hookcatch.com/wh/mno345pqr678',
-      requestCount: 156,
-      recentRequests: 1,
-      lastActivity: new Date(Date.now() - 1800000),
-      status: 'active',
-      createdAt: new Date('2024-09-10')
-    }
-  ]);
-
-  // Mock recent activity data
-  const [recentActivity] = useState([
-    {
-      id: 'req_1',
-      webhookName: 'Payment Gateway',
-      method: 'POST',
-      status: 200,
-      ip: '192.168.1.100',
-      userAgent: 'Stripe/1.0',
-      timestamp: new Date(Date.now() - 120000),
-      headers: {
-        'content-type': 'application/json',
-        'stripe-signature': 'v1=abc123...',
-        'user-agent': 'Stripe/1.0'
-      },
-      payload: {
-        id: 'evt_1234567890',
-        type: 'payment_intent.succeeded',
-        data: {
-          object: {
-            id: 'pi_1234567890',
-            amount: 2000,
-            currency: 'usd'
-          }
-        }
-      }
-    },
-    {
-      id: 'req_2',
-      webhookName: 'User Registration',
-      method: 'POST',
-      status: 201,
-      ip: '10.0.0.50',
-      userAgent: 'MyApp/2.1.0',
-      timestamp: new Date(Date.now() - 300000),
-      headers: {
-        'content-type': 'application/json',
-        'authorization': 'Bearer token123',
-        'x-api-version': '2024-01-01'
-      },
-      payload: {
-        event: 'user.created',
-        user: {
-          id: 'user_123',
-          email: 'john@example.com',
-          name: 'John Doe'
-        }
-      }
-    },
-    {
-      id: 'req_3',
-      webhookName: 'Order Updates',
-      method: 'PUT',
-      status: 200,
-      ip: '172.16.0.25',
-      userAgent: 'ShopifyWebhook/1.0',
-      timestamp: new Date(Date.now() - 600000),
-      headers: {
-        'content-type': 'application/json',
-        'x-shopify-topic': 'orders/updated',
-        'x-shopify-hmac-sha256': 'xyz789...'
-      },
-      payload: {
-        id: 'order_456',
-        status: 'shipped',
-        tracking_number: 'TRK123456789'
-      }
-    }
-  ]);
-
-  // Calculate stats
-  const totalRequests = webhooks?.reduce((sum, wh) => sum + wh?.requestCount, 0);
-  const activeWebhooks = webhooks?.filter(wh => wh?.status === 'active')?.length;
-  const recentRequestsCount = webhooks?.reduce((sum, wh) => sum + wh?.recentRequests, 0);
+  // Use real stats from service
+  const totalRequests = userStats.totalRequests;
+  const activeWebhooks = userStats.activeWebhooks;
+  const recentRequestsCount = userStats.todayRequests;
 
   // Filter and sort webhooks
   const filteredWebhooks = webhooks?.filter(webhook => {
@@ -149,11 +147,23 @@ const Dashboard = () => {
           return a?.name?.localeCompare(b?.name);
         case 'requests':
           return b?.requestCount - a?.requestCount;
-        case 'activity':
-          return (b?.lastActivity || 0) - (a?.lastActivity || 0);
+        case 'activity': {
+          const toTime = (val: Date | number | null | undefined): number => {
+            if (!val) return 0;
+            return typeof val === 'number' ? val : (val as Date).getTime();
+          };
+          const bTime = toTime(b?.lastActivity);
+          const aTime = toTime(a?.lastActivity);
+          return bTime - aTime;
+        }
         case 'created':
-        default:
-          return new Date(b.createdAt) - new Date(a.createdAt);
+        default: {
+          const toCreatedTime = (val: Date | string | number): number => {
+            if (val instanceof Date) return val.getTime();
+            return new Date(val)?.getTime();
+          };
+          return toCreatedTime(b.createdAt) - toCreatedTime(a.createdAt);
+        }
       }
     });
 
@@ -161,7 +171,7 @@ const Dashboard = () => {
     navigate('/create-webhook');
   };
 
-  const handleCopyUrl = async (webhook) => {
+  const handleCopyUrl = async (webhook: Webhook) => {
     try {
       await navigator.clipboard?.writeText(webhook?.url);
       // Show success feedback (handled by WebhookTable component)
@@ -170,23 +180,49 @@ const Dashboard = () => {
     }
   };
 
-  const handleViewRequests = (webhook) => {
+  const handleViewRequests = (webhook: Webhook) => {
     navigate(`/webhook-details?id=${webhook?.id}`);
   };
 
-  const handleDeleteWebhook = (webhook) => {
+  const handleDeleteWebhook = (webhook: Webhook) => {
     setDeleteModal({ isOpen: true, webhook });
   };
 
   const confirmDelete = async () => {
+    if (!deleteModal?.webhook?.id) {
+      console.error('No webhook ID provided for deletion');
+      return;
+    }
+    
     setIsDeleting(true);
+    setError(null); // Clear any previous errors
+    
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('Attempting to delete webhook:', deleteModal.webhook.id);
+      const { error } = await webhookService.deleteWebhook(deleteModal.webhook.id);
+      
+      if (error) {
+        console.error('Delete webhook error:', error);
+        setError(error.message || 'Failed to delete webhook');
+        return;
+      }
+      
+      console.log('Webhook deleted successfully');
+      
+      // Update local state immediately for better UX
       setWebhooks(prev => prev?.filter(wh => wh?.id !== deleteModal?.webhook?.id));
       setDeleteModal({ isOpen: false, webhook: null });
+      
+      // Show success message
+      setSuccessMessage('Webhook deleted successfully');
+      setTimeout(() => setSuccessMessage(null), 3000);
+      
+      // Reload data to update stats
+      await loadDashboardData();
+      
     } catch (error) {
       console.error('Failed to delete webhook:', error);
+      setError('Failed to delete webhook. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -206,18 +242,83 @@ const Dashboard = () => {
     navigate('/account-settings');
   };
 
-  const handleViewActivityDetails = (activity) => {
+  const handleViewActivityDetails = (activity: Activity) => {
     const webhook = webhooks?.find(wh => wh?.name === activity?.webhookName);
     if (webhook) {
       navigate(`/webhook-details?id=${webhook?.id}&request=${activity?.id}`);
     }
   };
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="pt-16">
+          <div className="max-w-7xl mx-auto px-6 py-8">
+            <div className="flex items-center justify-center h-64">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+              <span className="ml-2 text-muted-foreground">Loading dashboard...</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="pt-16">
+          <div className="max-w-7xl mx-auto px-6 py-8">
+            <div className="bg-destructive/10 border border-destructive/20 rounded-lg p-6 text-center">
+              <h3 className="text-destructive font-medium mb-2">Error Loading Dashboard</h3>
+              <p className="text-destructive/80 mb-4">{error}</p>
+              <Button onClick={loadDashboardData} variant="outline">
+                Try Again
+              </Button>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
       <main className="pt-16">
         <div className="max-w-7xl mx-auto px-6 py-8">
+          {/* Success Message */}
+          {successMessage && (
+            <div className="mb-6 bg-success/10 border border-success/20 rounded-lg p-4 flex items-center space-x-3">
+              <div className="w-5 h-5 bg-success rounded-full flex items-center justify-center">
+                <Icon name="Check" size={12} className="text-white" />
+              </div>
+              <span className="text-success font-medium">{successMessage}</span>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {error && (
+            <div className="mb-6 bg-destructive/10 border border-destructive/20 rounded-lg p-4 flex items-center justify-between">
+              <div className="flex items-center space-x-3">
+                <div className="w-5 h-5 bg-destructive rounded-full flex items-center justify-center">
+                  <Icon name="X" size={12} className="text-white" />
+                </div>
+                <span className="text-destructive font-medium">{error}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setError(null)}
+                className="text-destructive hover:text-destructive/80"
+              >
+                <Icon name="X" size={16} />
+              </Button>
+            </div>
+          )}
+
           {/* Page Header */}
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between mb-8">
             <div>
@@ -243,11 +344,11 @@ const Dashboard = () => {
 
           {/* Usage Limit Banner */}
           <UsageLimitBanner
-            currentTier={currentUser?.tier}
-            webhookCount={webhooks?.length}
-            webhookLimit={currentUser?.webhookLimit}
-            requestCount={totalRequests}
-            requestLimit={currentUser?.requestLimit}
+            currentTier={userProfile?.subscription_tier || 'free'}
+            webhookCount={userLimits.currentWebhooks}
+            webhookLimit={userLimits.webhookLimit}
+            requestCount={userLimits.currentRequests}
+            requestLimit={userLimits.requestLimit}
             onUpgrade={handleUpgrade}
           />
 
@@ -256,7 +357,7 @@ const Dashboard = () => {
             <StatsCard
               title="Active Webhooks"
               value={activeWebhooks}
-              subtitle={`${webhooks?.length}/${currentUser?.webhookLimit} total`}
+              subtitle={`${userLimits.currentWebhooks}/${userLimits.webhookLimit} total`}
               icon="Webhook"
               color="primary"
             />
@@ -280,8 +381,8 @@ const Dashboard = () => {
             />
             <StatsCard
               title="Data Retention"
-              value={`${currentUser?.retentionDays} days`}
-              subtitle={currentUser?.tier === 'free' ? 'Free tier' : 'Pro tier'}
+              value={`${userProfile?.subscription_tier === 'free' ? '7' : '30'} days`}
+              subtitle={userProfile?.subscription_tier === 'free' ? 'Free tier' : 'Pro tier'}
               icon="Clock"
               color="primary"
             />

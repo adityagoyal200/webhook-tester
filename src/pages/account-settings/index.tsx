@@ -1,4 +1,3 @@
-import React from 'react';
 import Header from '../../components/ui/Header';
 import ContextualHeader from '../../components/ui/ContextualHeader';
 import ProfileSection from './components/ProfileSection';
@@ -39,8 +38,6 @@ const AccountSettings = () => {
             
             {/* Security Settings */}
             <SecuritySection />
-            
-            {/* API Access & Usage */}
             <APIAccessSection />
           </div>
           

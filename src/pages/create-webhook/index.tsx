@@ -1,13 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ContextualHeader from '../../components/ui/ContextualHeader';
 import WebhookForm from './components/WebhookForm';
 import WebhookPreview from './components/WebhookPreview';
 import TierLimitWarning from './components/TierLimitWarning';
 import SuccessModal from './components/SuccessModal';
+import { useAuth } from '../../contexts/AuthContext';
+import { webhookService } from '../../services/webhookService';
+import { userService } from '../../services/userService';
 
 const CreateWebhook = () => {
   const navigate = useNavigate();
+  const { user, userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [previewData, setPreviewData] = useState({
     identifier: '',
@@ -16,23 +20,68 @@ const CreateWebhook = () => {
   });
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [createdWebhook, setCreatedWebhook] = useState(null);
+  const [userLimits, setUserLimits] = useState({
+    webhookLimit: 5,
+    currentWebhooks: 0,
+    canCreateWebhook: true
+  });
 
-  // Mock user data
+  // Load user limits
+  useEffect(() => {
+    if (user?.id) {
+      loadUserLimits();
+    }
+  }, [user]);
+
+  const loadUserLimits = async () => {
+    if (!user?.id) return;
+    
+    try {
+      const { data: limitsData } = await userService.checkSubscriptionLimits(user.id);
+      if (limitsData) {
+        setUserLimits(limitsData);
+      }
+    } catch (error) {
+      console.error('Failed to load user limits:', error);
+    }
+  };
+
   const userData = {
-    tier: 'free', // or 'paid'
-    webhookCount: 3,
-    email: 'developer@example.com'
+    tier: userProfile?.subscription_tier || 'free',
+    webhookCount: userLimits.currentWebhooks,
+    email: user?.email || ''
   };
 
   const handleFormSubmit = async (formData) => {
+    if (!user?.id) return;
+    
     setIsLoading(true);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Create webhook via service
+      const webhookData = {
+        user_id: user.id,
+        name: formData?.identifier,
+        description: formData?.description,
+        url: `https://api.hookcatch.com/webhook/${formData?.identifier}`,
+        status: 'active',
+        settings: {
+          enableRateLimit: formData?.enableRateLimit,
+          rateLimitRequests: formData?.rateLimitRequests,
+          enableNotifications: formData?.enableNotifications,
+          notificationEmail: formData?.notificationEmail,
+          httpMethods: formData?.httpMethods
+        }
+      };
+
+      const { data: createdData, error } = await webhookService.createWebhook(webhookData);
       
+      if (error) {
+        throw new Error(error.message);
+      }
+
       const newWebhook = {
-        id: `wh_${Date.now()}`,
+        id: createdData?.id,
         identifier: formData?.identifier,
         description: formData?.description,
         httpMethods: formData?.httpMethods,
@@ -52,6 +101,7 @@ const CreateWebhook = () => {
       setShowSuccessModal(true);
     } catch (error) {
       console.error('Failed to create webhook:', error);
+      alert('Failed to create webhook: ' + (error.message || 'Unknown error'));
     } finally {
       setIsLoading(false);
     }

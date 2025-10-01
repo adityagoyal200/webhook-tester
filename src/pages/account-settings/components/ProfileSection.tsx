@@ -1,9 +1,14 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../../contexts/AuthContext';
+import { userService } from '../../../services/userService';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 
 const ProfileSection = () => {
+  const navigate = useNavigate();
+  const { user, signOut } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -14,7 +19,7 @@ const ProfileSection = () => {
     confirmPassword: ''
   });
 
-  const handleInputChange = (e) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
       ...formData,
       [e?.target?.name]: e?.target?.value
@@ -39,10 +44,30 @@ const ProfileSection = () => {
     console.log('Password changed successfully');
   };
 
-  const handleDeleteAccount = () => {
-    // Mock account deletion
-    console.log('Account deletion requested');
-    setShowDeleteConfirm(false);
+  const handleDeleteAccount = async () => {
+    try {
+      if (!user?.id) {
+        console.error('No authenticated user');
+        setShowDeleteConfirm(false);
+        return;
+      }
+
+      // Delete all user-owned data
+      const { error } = await userService?.deleteUserAccount(user?.id);
+      if (error) {
+        console.error('Account deletion error:', error?.message || error);
+        setShowDeleteConfirm(false);
+        return;
+      }
+
+      // Sign out and redirect to login
+      await signOut();
+      setShowDeleteConfirm(false);
+      navigate('/login');
+    } catch (err) {
+      console.error('Unexpected error during deletion:', err);
+      setShowDeleteConfirm(false);
+    }
   };
 
   return (

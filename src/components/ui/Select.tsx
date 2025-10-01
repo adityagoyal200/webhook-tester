@@ -1,5 +1,4 @@
-// components/ui/Select.tsx - Shadcn style Select
-import { useState } from "react";
+import React, { useState } from "react";
 import { ChevronDown, Check, Search, X } from "lucide-react";
 import { cn } from "../../utils/cn";
 import Button from "./Button";
@@ -13,7 +12,7 @@ interface SelectOption {
     disabled?: boolean;
 }
 
-interface SelectProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onChange'> {
+interface SelectProps extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'onChange' | 'value'> {
     className?: string;
     options?: SelectOption[];
     value?: OptionValue | OptionValue[];
@@ -73,7 +72,7 @@ const Select = React.forwardRef<HTMLButtonElement, SelectProps>(({
     const getSelectedDisplay = () => {
         if (!value) return placeholder;
 
-        if (multiple) {
+        if (multiple && Array.isArray(value)) {
             const selectedOptions = options?.filter(opt => value?.includes(opt?.value));
             if (selectedOptions?.length === 0) return placeholder;
             if (selectedOptions?.length === 1) return selectedOptions?.[0]?.label;

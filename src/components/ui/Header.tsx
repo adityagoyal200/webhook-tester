@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
 import type { IconName } from '../AppIcon';
@@ -8,8 +8,27 @@ type NavItem = { label: string; path: string; icon: IconName };
 
 const Header = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [currentTheme, setCurrentTheme] = useState('system');
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') || 'system';
+    setCurrentTheme(savedTheme);
+  }, []);
+
+  const toggleTheme = () => {
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    setCurrentTheme(newTheme);
+    localStorage.setItem('theme', newTheme);
+    
+    const root = document.documentElement;
+    if (newTheme === 'dark') {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+  };
 
   const navigationItems: NavItem[] = [
     { label: 'Dashboard', path: '/dashboard', icon: 'LayoutDashboard' },
@@ -66,6 +85,17 @@ const Header = () => {
               <span>{item?.label}</span>
             </button>
           ))}
+          
+          {/* Theme Toggle */}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleTheme}
+            className="focus-ring"
+            title={`Switch to ${currentTheme === 'dark' ? 'light' : 'dark'} mode`}
+          >
+            <Icon name={currentTheme === 'dark' ? 'Sun' : 'Moon'} size={20} />
+          </Button>
         </nav>
 
         {/* Mobile Menu Button */}

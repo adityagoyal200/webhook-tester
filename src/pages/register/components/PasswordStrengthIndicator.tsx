@@ -1,21 +1,40 @@
-import React from 'react';
+interface PasswordStrengthIndicatorProps {
+  password?: string;
+  className?: string;
+}
 
-const PasswordStrengthIndicator = ({ password, className = '' }) => {
-  const calculateStrength = (password) => {
-    if (!password) return { score: 0, label: '', color: '' };
+interface Checks {
+  length: boolean;
+  lowercase: boolean;
+  uppercase: boolean;
+  numbers: boolean;
+  symbols: boolean;
+}
 
-    let score = 0;
-    const checks = {
-      length: password?.length >= 8,
-      lowercase: /[a-z]/?.test(password),
-      uppercase: /[A-Z]/?.test(password),
-      numbers: /\d/?.test(password),
-      symbols: /[!@#$%^&*(),.?":{}|<>]/?.test(password)
+interface StrengthLevel {
+  label: string;
+  color: string;
+  bgColor: string;
+}
+
+const PasswordStrengthIndicator = ({ password, className = '' }: PasswordStrengthIndicatorProps) => {
+  const calculateStrength = (password?: string) => {
+    if (!password) {
+      const emptyChecks: Checks = { length: false, lowercase: false, uppercase: false, numbers: false, symbols: false };
+      return { score: 0, checks: emptyChecks, label: '', color: '', bgColor: '' };
+    }
+
+    const checks: Checks = {
+      length: password.length >= 8,
+      lowercase: /[a-z]/.test(password),
+      uppercase: /[A-Z]/.test(password),
+      numbers: /\d/.test(password),
+      symbols: /[!@#$%^&*(),.?":{}|<>]/.test(password)
     };
 
-    score = Object.values(checks)?.filter(Boolean)?.length;
+    const score = Object.values(checks).filter(Boolean).length;
 
-    const strengthLevels = {
+    const strengthLevels: Record<number, StrengthLevel> = {
       0: { label: '', color: '', bgColor: '' },
       1: { label: 'Very Weak', color: 'text-red-600', bgColor: 'bg-red-500' },
       2: { label: 'Weak', color: 'text-red-500', bgColor: 'bg-red-400' },
@@ -24,10 +43,12 @@ const PasswordStrengthIndicator = ({ password, className = '' }) => {
       5: { label: 'Strong', color: 'text-green-600', bgColor: 'bg-green-500' }
     };
 
+    const level = strengthLevels[score] ?? strengthLevels[0];
+
     return {
       score,
       checks,
-      ...strengthLevels?.[score]
+      ...level
     };
   };
 

@@ -1,9 +1,12 @@
 import { useState } from 'react';
+import { useAuth } from '../../../contexts/AuthContext';
+import { userService } from '../../../services/userService';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 
 const PrivacySection = () => {
+  const { user } = useAuth();
   const [retentionPeriod, setRetentionPeriod] = useState('7');
   const [showDataDeletionConfirm, setShowDataDeletionConfirm] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
@@ -17,10 +20,22 @@ const PrivacySection = () => {
     { value: '30', label: '30 days (Pro only)', disabled: true }
   ];
 
-  const handleDataDeletion = () => {
-    console.log('GDPR data deletion requested');
-    setShowDataDeletionConfirm(false);
-    // Mock deletion process
+  const handleDataDeletion = async () => {
+    try {
+      if (!user?.id) {
+        console.error('No authenticated user');
+        setShowDataDeletionConfirm(false);
+        return;
+      }
+      const { error } = await userService?.deleteUserAccount(user?.id);
+      if (error) {
+        console.error('Data deletion error:', error?.message || error);
+      }
+      setShowDataDeletionConfirm(false);
+    } catch (err) {
+      console.error('Unexpected error during data deletion:', err);
+      setShowDataDeletionConfirm(false);
+    }
   };
 
   const handleDataExport = async () => {
