@@ -94,11 +94,6 @@ const CreateWebhook = () => {
 
   const handleFormSubmit = async (formData: WebhookFormData) => {
     if (!user?.id) return;
-    const hasSupabaseEnv = Boolean((import.meta as any)?.env?.VITE_SUPABASE_URL) && Boolean((import.meta as any)?.env?.VITE_SUPABASE_ANON_KEY);
-    if (!hasSupabaseEnv) {
-      alert('Missing Supabase configuration. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.');
-      return;
-    }
     
     setIsLoading(true);
     

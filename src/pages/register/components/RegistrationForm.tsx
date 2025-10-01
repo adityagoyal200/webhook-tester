@@ -6,7 +6,7 @@ import Button from '../../../components/ui/Button';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import PasswordStrengthIndicator from './PasswordStrengthIndicator';
 import Icon from '../../../components/AppIcon';
-import { authService } from '../../../services/authService';
+import { useAuth } from '../../../contexts/AuthContext';
 
 interface RegistrationFormData {
   email: string;
@@ -27,6 +27,7 @@ interface RegistrationFormProps {
 
 const RegistrationForm = ({ selectedTier, onSubmit, className = '' }: RegistrationFormProps) => {
   const navigate = useNavigate();
+  const { signUp } = useAuth();
   const [formData, setFormData] = useState<RegistrationFormData>({
     email: '',
     password: '',
@@ -112,11 +113,11 @@ const RegistrationForm = ({ selectedTier, onSubmit, className = '' }: Registrati
     setErrors({});
 
     try {
-      const { data, error } = await authService?.signUp(
+      const { data, error } = await signUp(
         formData?.email,
         formData?.password,
         {
-          full_name: formData?.fullName,
+          full_name: formData?.fullName || '', 
           subscription_tier: selectedTier || 'free',
           subscribe_newsletter: formData?.subscribeNewsletter
         }
@@ -127,7 +128,6 @@ const RegistrationForm = ({ selectedTier, onSubmit, className = '' }: Registrati
           general: error?.message || 'Registration failed. Please try again.'
         });
       } else if (data?.user) {
-        // Call onSubmit if provided
         if (onSubmit) {
           onSubmit({
             ...formData,
@@ -135,14 +135,12 @@ const RegistrationForm = ({ selectedTier, onSubmit, className = '' }: Registrati
           });
         }
         
-        // Show success message or navigate
-        if (data?.user?.email_confirmed_at) {
-          // Email confirmed, can sign in immediately
+        // If a session exists, user is already logged in; otherwise require email confirmation
+        if ((data as any)?.session) {
           navigate('/dashboard');
         } else {
-          // Need email confirmation
           setErrors({
-            general: 'Please check your email and click the confirmation link to complete registration.'
+            general: 'Please check your email for the confirmation link to activate your account.'
           });
         }
       }

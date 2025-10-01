@@ -1,15 +1,53 @@
-import { supabase } from '../lib/supabase';
+import { supabase, SUPABASE_URL } from '../lib/supabase';
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 export const webhookService = {
+  // Resolve functions base from env or SUPABASE_URL
+  resolveFunctionsBase(): string {
+    const envSupabaseUrl = (import.meta as any)?.env?.VITE_SUPABASE_URL as string | undefined;
+    const configuredBase = (import.meta as any)?.env?.VITE_FUNCTIONS_BASE_URL as string | undefined;
+    const resolvedSupabaseUrl = envSupabaseUrl || SUPABASE_URL;
+    return configuredBase || (resolvedSupabaseUrl ? resolvedSupabaseUrl.replace('.supabase.co', '.functions.supabase.co') : '');
+  },
+
+  // Backfill missing webhook URLs for a user
+  async backfillMissingWebhookUrls(userId: string) {
+    const functionsBase = this.resolveFunctionsBase();
+    if (!functionsBase) return { updated: 0 };
+
+    const { data: rows, error } = await supabase
+      ?.from('webhooks')
+      ?.select('id, url')
+      ?.eq('user_id', userId)
+      ?.limit(1000);
+
+    if (error || !rows?.length) return { updated: 0 };
+
+    const needsUpdate = rows.filter((w: any) => {
+      if (!w?.url) return true;
+      const mustContain = `/catch-webhook/${w.id}`;
+      return !String(w.url).includes(mustContain);
+    });
+
+    if (!needsUpdate.length) return { updated: 0 };
+
+    const updates = needsUpdate.map((w: any) => ({ id: w.id, url: `${functionsBase}/catch-webhook/${w.id}` }));
+    const { error: updateError } = await supabase
+      ?.from('webhooks')
+      ?.upsert(updates);
+
+    if (updateError) return { updated: 0 };
+    return { updated: updates.length };
+  },
   // Get all webhooks for the current user
   async getUserWebhooks(userId?: string) {
+    console.log('webhookService.getUserWebhooks called with userId:', userId);
     try {
       const { data, error } = await supabase
         ?.from('webhooks')
         ?.select(`
           *,
-          webhook_analytics!inner(
+          webhook_analytics(
             total_requests,
             successful_requests,
             failed_requests,
@@ -44,7 +82,15 @@ export const webhookService = {
     try {
       const { data, error } = await supabase
         ?.from('webhooks')
-        ?.select('*')
+        ?.select(`
+          *,
+          webhook_analytics(
+            total_requests,
+            successful_requests,
+            failed_requests,
+            avg_response_time_ms
+          )
+        `)
         ?.eq('id', id)
         ?.single();
 
@@ -67,11 +113,23 @@ export const webhookService = {
   // Create a new webhook
   async createWebhook(webhookData: Record<string, any>) {
     try {
+      const functionsBase = this.resolveFunctionsBase();
+
+      let webhookUrl = ''; 
+      if (functionsBase) {
+        webhookUrl = `${functionsBase}/catch-webhook/`;
+      } else {
+        console.warn('Warning: functionsBase is empty. Webhook URL might be incomplete due to missing VITE_SUPABASE_URL or VITE_FUNCTIONS_BASE_URL.');
+      }
+      console.log('Debug: functionsBase:', functionsBase);
+      console.log('Debug: Initial webhookUrl:', webhookUrl);
+
       const { data, error } = await supabase
         ?.from('webhooks')
         ?.insert([{ 
           ...webhookData,
-          secret_key: await this.generateSecretKey()
+          secret_key: await this.generateSecretKey(),
+          url: webhookUrl // Include url in the initial insert
         }])
         ?.select()
         ?.single();
@@ -79,11 +137,6 @@ export const webhookService = {
       if (error) {
         return { data: null, error };
       }
-
-      // Compose functions base URL for this webhook
-      const supabaseUrl = (import.meta as any)?.env?.VITE_SUPABASE_URL as string | undefined;
-      const configuredBase = (import.meta as any)?.env?.VITE_FUNCTIONS_BASE_URL as string | undefined;
-      const functionsBase = configuredBase || (supabaseUrl ? supabaseUrl.replace('.supabase.co', '.functions.supabase.co') : '');
 
       // If we have a base, set the webhook URL to the catch function with webhook id
       if (functionsBase && data?.id) {
@@ -243,7 +296,7 @@ export const webhookService = {
           headers: { 'Content-Type': 'application/json', 'User-Agent': 'HookCatch-Test/1.0' },
           payload: testPayload,
           response_status: 200,
-          status: 'success',
+          status: 200,
           processing_time_ms: Math.floor(Math.random() * 500) + 50,
           ip_address: '127.0.0.1'
         }])

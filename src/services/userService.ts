@@ -128,21 +128,35 @@ export const userService = {
         totalRequests = totalRequestsCount || 0;
       }
 
-      // Get today's requests count
-      const today = new Date()?.toISOString()?.split('T')?.[0];
-      let todayRequests = 0;
-      if (webhookIds.length) {
-        const { count: todayRequestsCount, error: todayError } = await supabase
-          ?.from('webhook_requests')
-          ?.select('webhook_id', { count: 'exact', head: true })
-          ?.in('webhook_id', webhookIds)
-          ?.gte('created_at', `${today}T00:00:00.000Z`)
-          ?.lt('created_at', `${today}T23:59:59.999Z`);
+      // Get today's and yesterday's requests count
+      const todayDate = new Date();
+      const todayStr = todayDate.toISOString().split('T')[0];
+      const yesterdayDate = new Date(todayDate);
+      yesterdayDate.setDate(todayDate.getDate() - 1);
+      const yesterdayStr = yesterdayDate.toISOString().split('T')[0];
 
-        if (todayError) {
-          return { data: null, error: todayError };
-        }
-        todayRequests = todayRequestsCount || 0;
+      let todayRequests = 0;
+      let yesterdayRequests = 0;
+      if (webhookIds.length) {
+        const [todayResult, ydayResult] = await Promise.all([
+          supabase
+            ?.from('webhook_requests')
+            ?.select('webhook_id', { count: 'exact', head: true })
+            ?.in('webhook_id', webhookIds)
+            ?.gte('created_at', `${todayStr}T00:00:00.000Z`)
+            ?.lt('created_at', `${todayStr}T23:59:59.999Z`),
+          supabase
+            ?.from('webhook_requests')
+            ?.select('webhook_id', { count: 'exact', head: true })
+            ?.in('webhook_id', webhookIds)
+            ?.gte('created_at', `${yesterdayStr}T00:00:00.000Z`)
+            ?.lt('created_at', `${yesterdayStr}T23:59:59.999Z`),
+        ]);
+
+        if (todayResult?.error) return { data: null, error: todayResult.error };
+        if (ydayResult?.error) return { data: null, error: ydayResult.error };
+        todayRequests = todayResult?.count || 0;
+        yesterdayRequests = ydayResult?.count || 0;
       }
 
       // Get active webhooks count
@@ -156,11 +170,51 @@ export const userService = {
         return { data: null, error: activeError };
       }
 
+      // Compute 7-day vs previous 7-day windows for trend on total requests
+      let last7Requests = 0;
+      let prev7Requests = 0;
+      if (webhookIds.length) {
+        const endCurrent = new Date();
+        endCurrent.setHours(23, 59, 59, 999);
+        const startCurrent = new Date(endCurrent);
+        startCurrent.setDate(endCurrent.getDate() - 6); // inclusive 7 days
+        startCurrent.setHours(0, 0, 0, 0);
+
+        const endPrev = new Date(startCurrent);
+        endPrev.setHours(23, 59, 59, 999);
+        const startPrev = new Date(endPrev);
+        startPrev.setDate(endPrev.getDate() - 6);
+        startPrev.setHours(0, 0, 0, 0);
+
+        const [last7, prev7] = await Promise.all([
+          supabase
+            ?.from('webhook_requests')
+            ?.select('webhook_id', { count: 'exact', head: true })
+            ?.in('webhook_id', webhookIds)
+            ?.gte('created_at', startCurrent.toISOString())
+            ?.lte('created_at', endCurrent.toISOString()),
+          supabase
+            ?.from('webhook_requests')
+            ?.select('webhook_id', { count: 'exact', head: true })
+            ?.in('webhook_id', webhookIds)
+            ?.gte('created_at', startPrev.toISOString())
+            ?.lte('created_at', endPrev.toISOString()),
+        ]);
+
+        if (last7?.error) return { data: null, error: last7.error };
+        if (prev7?.error) return { data: null, error: prev7.error };
+        last7Requests = last7?.count || 0;
+        prev7Requests = prev7?.count || 0;
+      }
+
       const stats = {
         totalWebhooks: webhookCount || 0,
         activeWebhooks: activeWebhooks || 0,
         totalRequests,
-        todayRequests
+        todayRequests,
+        yesterdayRequests,
+        last7Requests,
+        prev7Requests
       };
 
       return { data: stats, error: null };

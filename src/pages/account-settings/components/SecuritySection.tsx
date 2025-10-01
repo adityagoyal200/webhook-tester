@@ -1,69 +1,56 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import { useAuth } from '../../../contexts/AuthContext';
+import { Session } from '@supabase/supabase-js';
+import { supabase } from '../../../lib/supabase';
+import { toast } from 'sonner';
 
+interface LoginHistoryEntry {
+  id: string;
+  user_id: string;
+  timestamp: string;
+  ip_address: string;
+  device_info: string;
+  status: string;
+}
 
 const SecuritySection = () => {
+  const { user } = useAuth();
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [showTwoFactorSetup, setShowTwoFactorSetup] = useState(false);
+  const [activeSessions, setActiveSessions] = useState<Session[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(true);
   const [showSessionModal, setShowSessionModal] = useState(false);
+  const [sessionToTerminate, setSessionToTerminate] = useState<string | null>(
+    null
+  );
+  const [loginHistory, setLoginHistory] = useState<LoginHistoryEntry[]>([]);
+  const [loadingLoginHistory, setLoadingLoginHistory] = useState(true);
+  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
 
-  const mockSessions = [
-    {
-      id: 'session_1',
-      device: 'MacBook Pro',
-      browser: 'Chrome 118',
-      location: 'San Francisco, CA',
-      ip: '192.168.1.100',
-      lastActive: '2 minutes ago',
-      current: true
-    },
-    {
-      id: 'session_2',
-      device: 'iPhone 15',
-      browser: 'Safari Mobile',
-      location: 'San Francisco, CA',
-      ip: '192.168.1.101',
-      lastActive: '1 hour ago',
-      current: false
-    },
-    {
-      id: 'session_3',
-      device: 'Windows PC',
-      browser: 'Edge 118',
-      location: 'New York, NY',
-      ip: '203.0.113.45',
-      lastActive: '2 days ago',
-      current: false
+  const fetchSessions = async () => {
+    setLoadingSessions(true);
+    try {
+      const [{ data: sessionData }, { data, error }] = await Promise.all([
+        supabase.auth.getSession(),
+        supabase.auth.getSessions(),
+      ]);
+      setCurrentSessionId(sessionData?.session?.id ?? null);
+      if (error) {
+        console.error('Error fetching sessions:', error);
+        toast.error('Error fetching active sessions.', error.message);
+      } else if (data) {
+        setActiveSessions(data.sessions || []);
+      }
+    } finally {
+      setLoadingSessions(false);
     }
-  ];
+  };
 
-  const mockLoginHistory = [
-    {
-      id: 'login_1',
-      timestamp: '2025-10-01 09:30:00',
-      device: 'MacBook Pro',
-      location: 'San Francisco, CA',
-      ip: '192.168.1.100',
-      status: 'success'
-    },
-    {
-      id: 'login_2',
-      timestamp: '2025-09-30 14:22:00',
-      device: 'iPhone 15',
-      location: 'San Francisco, CA',
-      ip: '192.168.1.101',
-      status: 'success'
-    },
-    {
-      id: 'login_3',
-      timestamp: '2025-09-29 10:15:00',
-      device: 'Unknown Device',
-      location: 'Unknown Location',
-      ip: '203.0.113.99',
-      status: 'failed'
-    }
-  ];
+  useEffect(() => {
+    fetchSessions();
+  }, []);
 
   const handleTwoFactorToggle = () => {
     if (!twoFactorEnabled) {
@@ -79,20 +66,64 @@ const SecuritySection = () => {
     console.log('Two-factor authentication enabled');
   };
 
-  const handleTerminateSession = (sessionId) => {
+  const handleTerminateSession = async (sessionId: string) => {
     console.log('Terminating session:', sessionId);
+    const { error } = await supabase.auth.signOut({ scope: 'others' });
+    if (error) {
+      console.error('Error terminating session:', error);
+    } else {
+      // Re-fetch sessions to update the UI
+      const { data, error: fetchError } = await supabase.auth.getSessions();
+      if (fetchError) {
+        console.error('Error re-fetching sessions:', fetchError);
+      } else if (data) {
+        setActiveSessions(data.sessions || []);
+      }
+    }
   };
 
-  const handleTerminateAllSessions = () => {
+  const handleTerminateAllSessions = async () => {
     console.log('Terminating all other sessions');
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Error terminating all sessions:', error);
+    } else {
+      // After terminating all sessions, the user will be logged out, so we should clear local state
+      setActiveSessions([]);
+    }
   };
 
-  const getDeviceIcon = (device) => {
-    if (device?.includes('iPhone') || device?.includes('Android')) return 'Smartphone';
-    if (device?.includes('iPad') || device?.includes('Tablet')) return 'Tablet';
-    if (device?.includes('Mac')) return 'Laptop';
+  const getDeviceIcon = (userAgent: string | null | undefined) => {
+    if (!userAgent) return 'Monitor';
+    if (userAgent.includes('iPhone') || userAgent.includes('Android') || userAgent.includes('Mobile')) return 'Smartphone';
+    if (userAgent.includes('iPad') || userAgent.includes('Tablet')) return 'Tablet';
+    if (userAgent.includes('Mac OS X') || userAgent.includes('Windows NT') || userAgent.includes('Linux')) return 'Laptop';
     return 'Monitor';
   };
+
+  const fetchLoginHistory = async () => {
+    if (!user) return;
+    setLoadingLoginHistory(true);
+    const { data, error } = await supabase
+      .from("login_history")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("timestamp", { ascending: false })
+      .limit(5);
+
+    if (error) {
+      console.error("Error fetching login history:", error);
+      toast.error("Error fetching login history.", error.message);
+    } else {
+      setLoginHistory(data || []);
+    }
+    setLoadingLoginHistory(false);
+  };
+
+  useEffect(() => {
+    fetchSessions();
+    fetchLoginHistory();
+  }, [user]);
 
   return (
     <div className="bg-card border border-border rounded-lg p-6">
@@ -125,7 +156,7 @@ const SecuritySection = () => {
               <h3 className="font-medium text-foreground">Two-Factor Authentication</h3>
               <p className="text-sm text-muted-foreground">
                 {twoFactorEnabled 
-                  ? 'Your account is protected with 2FA' :'Add an extra layer of security to your account'
+                  ? 'Your account is protected with 2FA' : 'Add an extra layer of security to your account'
                 }
               </p>
               {!twoFactorEnabled && (
@@ -160,67 +191,89 @@ const SecuritySection = () => {
         </div>
 
         <div className="space-y-3">
-          {mockSessions?.slice(0, 2)?.map((session) => (
-            <div key={session?.id} className="flex items-center justify-between p-3 border border-border rounded-lg">
-              <div className="flex items-center space-x-3">
-                <Icon name={getDeviceIcon(session?.device)} size={20} className="text-muted-foreground" />
-                <div>
-                  <div className="flex items-center space-x-2">
-                    <span className="font-medium text-foreground">{session?.device}</span>
-                    {session?.current && (
-                      <span className="text-xs bg-success/10 text-success px-2 py-1 rounded">
-                        Current
-                      </span>
-                    )}
+          {loadingSessions ? (
+            <p className="text-muted-foreground">Loading sessions...</p>
+          ) : activeSessions?.length === 0 ? (
+            <p className="text-muted-foreground">No active sessions found.</p>
+          ) : (
+            activeSessions?.slice(0, 2)?.map((session) => (
+              <div key={session?.id} className="flex items-center justify-between p-3 border border-border rounded-lg">
+                <div className="flex items-center space-x-3">
+                  <Icon name={getDeviceIcon(session?.user_agent)} size={20} className="text-muted-foreground" />
+                  <div>
+                    <div className="flex items-center space-x-2">
+                      <span className="font-medium text-foreground">{session?.user_agent || 'Unknown Device'}</span>
+                      {session?.id === currentSessionId && (
+                        <span className="text-xs bg-success/10 text-success px-2 py-1 rounded">
+                          Current
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {/* {session?.browser} • {session?.location} */}
+                      Last active: {new Date(session?.last_accessed_at || '').toLocaleString()}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {/* IP: {session?.factor_id} This is a placeholder, actual IP might not be directly available in session object */}
+                    </p>
                   </div>
-                  <p className="text-sm text-muted-foreground">
-                    {session?.browser} • {session?.location}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {session?.ip} • {session?.lastActive}
-                  </p>
                 </div>
+                {session?.id !== currentSessionId && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => session?.id && handleTerminateSession(session.id)}
+                    iconName="X"
+                  >
+                    Terminate
+                  </Button>
+                )}
               </div>
-              {!session?.current && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handleTerminateSession(session?.id)}
-                  iconName="X"
-                >
-                  Terminate
-                </Button>
-              )}
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
       {/* Recent Login Activity */}
       <div className="border-t border-border pt-6">
         <h3 className="font-medium text-foreground mb-4">Recent Login Activity</h3>
         <div className="space-y-3">
-          {mockLoginHistory?.slice(0, 3)?.map((login) => (
-            <div key={login?.id} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
-              <div className="flex items-center space-x-3">
-                <div className={`w-2 h-2 rounded-full ${
-                  login?.status === 'success' ? 'bg-success' : 'bg-error'
-                }`} />
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    {new Date(login.timestamp)?.toLocaleString()}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {login?.device} • {login?.location} • {login?.ip}
-                  </p>
+          {loadingLoginHistory ? (
+            <p className="text-muted-foreground">Loading login history...</p>
+          ) : loginHistory.length === 0 ? (
+            <p className="text-muted-foreground">No recent login activity found.</p>
+          ) : (
+            loginHistory.map((entry) => (
+              <div
+                key={entry.id}
+                className="flex items-center justify-between p-3 bg-muted/30 rounded-lg"
+              >
+                <div className="flex items-center space-x-3">
+                  <div
+                    className={`w-2 h-2 rounded-full ${
+                      entry.status === "success" ? "bg-success" : "bg-error"
+                    }`}
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      {new Date(entry.timestamp)?.toLocaleString()}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {entry.device_info} • {entry.ip_address}
+                    </p>
+                  </div>
                 </div>
+                <span
+                  className={`text-xs px-2 py-1 rounded ${
+                    entry.status === "success"
+                      ? "bg-success/10 text-success"
+                      : "bg-error/10 text-error"
+                  }`}
+                >
+                  {entry.status}
+                </span>
               </div>
-              <span className={`text-xs px-2 py-1 rounded ${
-                login?.status === 'success' ?'bg-success/10 text-success' :'bg-error/10 text-error'
-              }`}>
-                {login?.status}
-              </span>
-            </div>
-          ))}
+            ))
+          )}
         </div>
       </div>
       {/* Two-Factor Setup Modal */}
@@ -284,37 +337,42 @@ const SecuritySection = () => {
             </div>
             
             <div className="space-y-4">
-              {mockSessions?.map((session) => (
-                <div key={session?.id} className="flex items-center justify-between p-4 border border-border rounded-lg">
-                  <div className="flex items-center space-x-3">
-                    <Icon name={getDeviceIcon(session?.device)} size={24} className="text-muted-foreground" />
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-medium text-foreground">{session?.device}</span>
-                        {session?.current && (
-                          <span className="text-xs bg-success/10 text-success px-2 py-1 rounded">
-                            Current Session
-                          </span>
-                        )}
+              {loadingSessions ? (
+                <p className="text-muted-foreground">Loading sessions...</p>
+              ) : activeSessions?.length === 0 ? (
+                <p className="text-muted-foreground">No active sessions found.</p>
+              ) : (
+                activeSessions?.map((session) => (
+                  <div key={session?.id} className="flex items-center justify-between p-4 border border-border rounded-lg">
+                    <div className="flex items-center space-x-3">
+                      <Icon name={getDeviceIcon(session?.user_agent)} size={24} className="text-muted-foreground" />
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-medium text-foreground">{session?.user_agent || 'Unknown Device'}</span>
+                          {session?.id === currentSessionId && (
+                            <span className="text-xs bg-success/10 text-success px-2 py-1 rounded">
+                              Current Session
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-muted-foreground">Last active: {new Date(session?.last_accessed_at || '').toLocaleString()}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {/* IP: {session?.factor_id} Placeholder for IP */}
+                        </p>
                       </div>
-                      <p className="text-sm text-muted-foreground">{session?.browser}</p>
-                      <p className="text-sm text-muted-foreground">{session?.location}</p>
-                      <p className="text-xs text-muted-foreground">
-                        IP: {session?.ip} • Last active: {session?.lastActive}
-                      </p>
                     </div>
+                    {session?.id !== currentSessionId && (
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => session?.id && handleTerminateSession(session.id)}
+                      >
+                        Terminate
+                      </Button>
+                    )}
                   </div>
-                  {!session?.current && (
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleTerminateSession(session?.id)}
-                    >
-                      Terminate
-                    </Button>
-                  )}
-                </div>
-              ))}
+                ))
+              )}
             </div>
 
             <div className="flex justify-between mt-6 pt-6 border-t border-border">

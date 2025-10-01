@@ -29,7 +29,9 @@ const WebhookManagementSection = () => {
       setError(null);
 
       try {
-        const hasSupabaseEnv = Boolean((import.meta as any)?.env?.VITE_SUPABASE_URL) && Boolean((import.meta as any)?.env?.VITE_SUPABASE_ANON_KEY);
+        const hasSupabaseEnv =
+          Boolean(import.meta.env?.VITE_SUPABASE_URL || process?.env?.VITE_SUPABASE_URL) &&
+          Boolean(import.meta.env?.VITE_SUPABASE_ANON_KEY || process?.env?.VITE_SUPABASE_ANON_KEY);
         if (!hasSupabaseEnv) {
           setError('Missing Supabase configuration. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env');
           return;

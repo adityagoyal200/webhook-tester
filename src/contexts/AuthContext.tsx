@@ -114,18 +114,25 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
   }
 
   const updatePassword = async (password: string) => {
-    return await authService?.updatePassword(password);
+    return await authService?.updatePassword({ currentPassword: '', newPassword: password });
   }
 
   const updateProfile = async (updates: Record<string, any>) => {
     if (!user) return { error: { message: 'No user logged in' } } as { error: { message: string } }
     
     try {
-      const { data, error } = await supabase?.from('user_profiles')?.update(updates)?.eq('id', user?.id)?.select()?.single()
-      if (!error && data) {
-        setUserProfile(data)
+      const { data, error } = await supabase?.from('user_profiles')?.update(updates)?.eq('id', user?.id)?.select()
+      if (error) {
+        console.error('Supabase update error:', error);
+        return { data: null, error };
       }
-      return { data, error }
+      if (data && data.length > 0) {
+        setUserProfile(data[0]) 
+        return { data: data[0], error: null }
+      } else {
+        console.warn('Profile update returned no data. User profile might be missing or RLS policy prevented update.');
+        return { data: null, error: { message: 'Profile not found or update failed.' } };
+      }
     } catch (error) {
       return { error: { message: 'Network error. Please try again.' } }
     }

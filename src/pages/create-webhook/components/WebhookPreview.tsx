@@ -11,7 +11,9 @@ const WebhookPreview = ({ identifier, httpMethods = ['POST'], description }: {
   
   const configuredBase = (import.meta as any)?.env?.VITE_FUNCTIONS_BASE_URL as string | undefined;
   const supabaseUrl = (import.meta as any)?.env?.VITE_SUPABASE_URL as string | undefined;
-  const functionsBase = configuredBase || (supabaseUrl ? supabaseUrl.replace('.supabase.co', '.functions.supabase.co') : 'https://your-project-ref.functions.supabase.co');
+  const fallbackSupabaseUrl = (window as any)?.SUPABASE_URL as string | undefined;
+  const resolvedSupabaseUrl = supabaseUrl || fallbackSupabaseUrl;
+  const functionsBase = configuredBase || (resolvedSupabaseUrl ? resolvedSupabaseUrl.replace('.supabase.co', '.functions.supabase.co') : '');
   const basePath = `${functionsBase}/catch-webhook`;
   const webhookUrl = identifier ? `${basePath}/${identifier}` : `${basePath}/your-identifier`;
 

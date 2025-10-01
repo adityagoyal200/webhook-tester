@@ -5,8 +5,24 @@ import Select from '../../../components/ui/Select';
 import { Checkbox } from '../../../components/ui/Checkbox';
 import Icon from '../../../components/AppIcon';
 
-const WebhookForm = ({ onSubmit, isLoading }) => {
-  const [formData, setFormData] = useState({
+interface WebhookFormData {
+  identifier: string;
+  description: string;
+  httpMethods: string[];
+  enableRateLimit: boolean;
+  rateLimitRequests: number;
+  enableNotifications: boolean;
+  notificationEmail: string;
+}
+
+interface WebhookFormProps {
+  onSubmit: (formData: WebhookFormData) => void;
+  isLoading: boolean;
+  onChange: (formData: WebhookFormData) => void;
+}
+
+const WebhookForm = ({ onSubmit, isLoading, onChange }: WebhookFormProps) => {
+  const [formData, setFormData] = useState<WebhookFormData>({
     identifier: '',
     description: '',
     httpMethods: ['POST'],
@@ -86,6 +102,7 @@ const WebhookForm = ({ onSubmit, isLoading }) => {
 
   const handleInputChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    onChange(formData);
     
     if (errors?.[field]) {
       setErrors(prev => ({ ...prev, [field]: null }));

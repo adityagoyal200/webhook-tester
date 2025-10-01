@@ -31,6 +31,9 @@ serve(async (req: Request): Promise<Response> => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") as string;
   const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  console.log('Supabase URL:', supabaseUrl);
+  console.log('Supabase Key (first 5 chars):', supabaseKey?.substring(0, 5));
+
   if (!supabaseUrl || !supabaseKey) {
     return new Response(JSON.stringify({ error: "Missing Supabase env vars" }), {
       status: 500,
@@ -42,8 +45,8 @@ serve(async (req: Request): Promise<Response> => {
 
   const url = new URL(req.url);
   const pathSegments = url.pathname.split("/").filter(Boolean);
-  // Expect path like /catch-webhook/<webhook-id>
-  const webhookId = pathSegments[pathSegments.length - 1];
+  const webhookId = pathSegments[pathSegments.indexOf("catch-webhook") + 1];
+  console.log('Extracted Webhook ID:', webhookId);
 
   if (!webhookId) {
     return new Response(JSON.stringify({ error: "Missing webhook id in path" }), {
@@ -60,6 +63,7 @@ serve(async (req: Request): Promise<Response> => {
     .or(`id.eq.${webhookId},name.eq.${webhookId}`)
     .limit(1);
   const webhook = Array.isArray(webhooksData) ? webhooksData[0] : null;
+  console.log('Webhook lookup result:', webhook);
 
   if (whError || !webhook) {
     return new Response(JSON.stringify({ error: "Webhook not found" }), {
@@ -97,7 +101,7 @@ serve(async (req: Request): Promise<Response> => {
       headers: headersObj,
       payload,
       response_status: 200,
-      status: "success",
+      status: 200,
       processing_time_ms: 0,
       ip_address: ip,
       user_agent: userAgent,

@@ -187,13 +187,15 @@ const WebhookDetails = () => {
   };
 
   const handleTestWebhook = () => {
-    setShowTestModal(true);
+    if (webhook) {
+      setShowTestModal(true);
+    }
   };
 
   const handleSendTestWebhook = async (testData: any) => {
     try {
       // Send the test webhook
-      const response = await fetch(testData.url, {
+      const response = await fetch(webhook?.url || testData.url, {
         method: testData.method,
         headers: {
           'Content-Type': 'application/json',
@@ -206,8 +208,10 @@ const WebhookDetails = () => {
         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
       }
 
-      // The webhook should now appear in the request history
-      // In a real implementation, you might want to refresh the requests list
+      if (id) {
+        await webhookService.testWebhook(id, testData.payload ?? {});
+      }
+
       console.log('Test webhook sent successfully');
     } catch (error) {
       console.error('Failed to send test webhook:', error);
@@ -309,7 +313,7 @@ const WebhookDetails = () => {
         />
 
         <WebhookTestModal
-          isOpen={showTestModal}
+          isOpen={showTestModal && webhook !== null}
           onClose={() => setShowTestModal(false)}
           webhookUrl={webhook?.url || ''}
           onSendTest={handleSendTestWebhook}

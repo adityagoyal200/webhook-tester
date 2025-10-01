@@ -45,7 +45,10 @@ const Dashboard = () => {
     totalWebhooks: 0,
     activeWebhooks: 0,
     totalRequests: 0,
-    todayRequests: 0
+    todayRequests: 0,
+    yesterdayRequests: 0,
+    last7Requests: 0,
+    prev7Requests: 0
   });
   const [userLimits, setUserLimits] = useState({
     webhookLimit: 5,
@@ -65,12 +68,18 @@ const Dashboard = () => {
   }, [user]);
 
   const loadDashboardData = async () => {
-    if (!user?.id) return;
+    if (!user?.id) {
+      console.warn("User ID is not available. Cannot load dashboard data.");
+      setLoading(false);
+      return;
+    }
     
     setLoading(true);
     setError(null);
 
     try {
+      await webhookService.backfillMissingWebhookUrls(user.id);
+
       // Load webhooks
       const { data: webhooksData, error: webhooksError } = await webhookService.getUserWebhooks(user.id);
       if (webhooksError) {
@@ -134,6 +143,18 @@ const Dashboard = () => {
   const totalRequests = userStats.totalRequests;
   const activeWebhooks = userStats.activeWebhooks;
   const recentRequestsCount = userStats.todayRequests;
+
+  // Trends
+  const recentTrendDelta = userStats.todayRequests - userStats.yesterdayRequests;
+  const recentTrend: 'up' | 'down' | 'neutral' = recentTrendDelta > 0 ? 'up' : recentTrendDelta < 0 ? 'down' : 'neutral';
+  const recentTrendLabel = recentTrendDelta === 0 ? '0' : `${recentTrendDelta > 0 ? '+' : ''}${recentTrendDelta}`;
+
+  const total7Delta = userStats.last7Requests - userStats.prev7Requests;
+  const total7Pct = userStats.prev7Requests > 0 
+    ? Math.round((total7Delta / userStats.prev7Requests) * 100)
+    : (userStats.last7Requests > 0 ? 100 : 0);
+  const totalTrend: 'up' | 'down' | 'neutral' = total7Delta > 0 ? 'up' : total7Delta < 0 ? 'down' : 'neutral';
+  const totalTrendLabel = `${total7Pct > 0 ? '+' : ''}${total7Pct}%`;
 
   // Filter and sort webhooks
   const filteredWebhooks = webhooks?.filter(webhook => {
@@ -364,11 +385,11 @@ const Dashboard = () => {
             <StatsCard
               title="Total Requests"
               value={totalRequests?.toLocaleString()}
-              subtitle="All time"
+              subtitle="Last 7 days vs prior 7"
               icon="BarChart3"
               color="success"
-              trend="up"
-              trendValue="+12%"
+              trend={totalTrend}
+              trendValue={totalTrendLabel}
             />
             <StatsCard
               title="Recent Requests"
@@ -376,8 +397,8 @@ const Dashboard = () => {
               subtitle="Last 24 hours"
               icon="Activity"
               color="warning"
-              trend="up"
-              trendValue="+5"
+              trend={recentTrend}
+              trendValue={recentTrendLabel}
             />
             <StatsCard
               title="Data Retention"

@@ -9,7 +9,30 @@ export const authService = {
         password
       });
 
+      const ipResponse = await fetch('https://api.ipify.org?format=json');
+      const ipData = await ipResponse.json();
+      const ipAddress = ipData.ip;
+      const userAgent = navigator.userAgent;
+
+      if (data?.user) {
+        await supabase.from('login_history').insert({
+          user_id: data.user.id,
+          ip_address: ipAddress,
+          device_info: userAgent,
+          status: 'success',
+        });
+      }
+
       if (error) {
+        // Log failed login attempt
+        if (data?.user?.id) {
+          await supabase.from('login_history').insert({
+            user_id: data.user.id,
+            ip_address: ipAddress,
+            device_info: userAgent,
+            status: 'failed',
+          });
+        }
         // Handle specific Supabase auth errors
         if (error?.message?.includes('Invalid login credentials')) {
           return { 
@@ -49,10 +72,33 @@ export const authService = {
         }
       });
 
+      const ipResponse = await fetch('https://api.ipify.org?format=json');
+      const ipData = await ipResponse.json();
+      const ipAddress = ipData.ip;
+      const userAgent = navigator.userAgent;
+
+      if (data?.user) {
+        await supabase.from('login_history').insert({
+          user_id: data.user.id,
+          ip_address: ipAddress,
+          device_info: userAgent,
+          status: 'success',
+        });
+      }
+
       if (error) {
+        // Log failed signup attempt if user ID is available
+        if (data?.user?.id) {
+          await supabase.from('login_history').insert({
+            user_id: data.user.id,
+            ip_address: ipAddress,
+            device_info: userAgent,
+            status: 'failed',
+          });
+        }
         if (error?.message?.includes('User already registered')) {
-          return { 
-            data: null, 
+          return {
+            data: null,
             error: { message: 'An account with this email already exists. Please sign in instead.' }
           };
         }
