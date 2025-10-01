@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ContextualHeader from '../../components/ui/ContextualHeader';
 import WebhookForm from './components/WebhookForm';
@@ -9,18 +9,58 @@ import { useAuth } from '../../contexts/AuthContext';
 import { webhookService } from '../../services/webhookService';
 import { userService } from '../../services/userService';
 
+// Types
+interface WebhookFormData {
+  identifier: string;
+  description: string;
+  httpMethods: string[];
+  enableRateLimit: boolean;
+  rateLimitRequests: number;
+  enableNotifications: boolean;
+  notificationEmail: string;
+}
+
+interface PreviewData {
+  identifier: string;
+  httpMethods: string[];
+  description: string;
+}
+
+interface UserLimits {
+  webhookLimit: number;
+  currentWebhooks: number;
+  canCreateWebhook: boolean;
+}
+
+interface CreatedWebhook {
+  id: string;
+  identifier: string;
+  description: string;
+  httpMethods: string[];
+  url: string;
+  createdAt: string;
+  requestCount: number;
+  lastRequest: string | null;
+  settings: {
+    enableRateLimit: boolean;
+    rateLimitRequests: number;
+    enableNotifications: boolean;
+    notificationEmail: string;
+  };
+}
+
 const CreateWebhook = () => {
   const navigate = useNavigate();
   const { user, userProfile } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
-  const [previewData, setPreviewData] = useState({
+  const [previewData, setPreviewData] = useState<PreviewData>({
     identifier: '',
     httpMethods: ['POST'],
     description: ''
   });
   const [showSuccessModal, setShowSuccessModal] = useState(false);
-  const [createdWebhook, setCreatedWebhook] = useState(null);
-  const [userLimits, setUserLimits] = useState({
+  const [createdWebhook, setCreatedWebhook] = useState<CreatedWebhook | null>(null);
+  const [userLimits, setUserLimits] = useState<UserLimits>({
     webhookLimit: 5,
     currentWebhooks: 0,
     canCreateWebhook: true
@@ -52,8 +92,13 @@ const CreateWebhook = () => {
     email: user?.email || ''
   };
 
-  const handleFormSubmit = async (formData) => {
+  const handleFormSubmit = async (formData: WebhookFormData) => {
     if (!user?.id) return;
+    const hasSupabaseEnv = Boolean((import.meta as any)?.env?.VITE_SUPABASE_URL) && Boolean((import.meta as any)?.env?.VITE_SUPABASE_ANON_KEY);
+    if (!hasSupabaseEnv) {
+      alert('Missing Supabase configuration. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your .env file.');
+      return;
+    }
     
     setIsLoading(true);
     
@@ -63,8 +108,6 @@ const CreateWebhook = () => {
         user_id: user.id,
         name: formData?.identifier,
         description: formData?.description,
-        url: `https://api.hookcatch.com/webhook/${formData?.identifier}`,
-        status: 'active',
         settings: {
           enableRateLimit: formData?.enableRateLimit,
           rateLimitRequests: formData?.rateLimitRequests,
@@ -80,13 +123,13 @@ const CreateWebhook = () => {
         throw new Error(error.message);
       }
 
-      const newWebhook = {
-        id: createdData?.id,
+      const newWebhook: CreatedWebhook = {
+        id: String(createdData?.id ?? ''),
         identifier: formData?.identifier,
         description: formData?.description,
         httpMethods: formData?.httpMethods,
-        url: `https://api.hookcatch.com/webhook/${formData?.identifier}`,
-        createdAt: new Date()?.toISOString(),
+        url: String(createdData?.url ?? ''),
+        createdAt: new Date().toISOString(),
         requestCount: 0,
         lastRequest: null,
         settings: {
@@ -101,7 +144,7 @@ const CreateWebhook = () => {
       setShowSuccessModal(true);
     } catch (error) {
       console.error('Failed to create webhook:', error);
-      alert('Failed to create webhook: ' + (error.message || 'Unknown error'));
+      alert('Failed to create webhook: ' + (error instanceof Error ? error.message : 'Unknown error'));
     } finally {
       setIsLoading(false);
     }
@@ -113,9 +156,11 @@ const CreateWebhook = () => {
 
   const handleViewWebhook = () => {
     setShowSuccessModal(false);
-    navigate('/webhook-details', { 
-      state: { webhook: createdWebhook } 
-    });
+    if (createdWebhook?.id) {
+      navigate(`/webhook-details?id=${createdWebhook.id}`);
+    } else {
+      navigate('/webhook-details');
+    }
   };
 
   const handleCreateAnother = () => {
@@ -136,7 +181,7 @@ const CreateWebhook = () => {
   };
 
   // Update preview data when form changes
-  const handleFormChange = (formData) => {
+  const handleFormChange = (formData: WebhookFormData) => {
     setPreviewData({
       identifier: formData?.identifier,
       httpMethods: formData?.httpMethods,
@@ -184,6 +229,7 @@ const CreateWebhook = () => {
                 onSubmit={handleFormSubmit}
                 isLoading={isLoading}
                 onChange={handleFormChange}
+
               />
             </div>
           </div>
@@ -249,7 +295,7 @@ const CreateWebhook = () => {
       <SuccessModal
         isOpen={showSuccessModal}
         onClose={handleCloseModal}
-        webhookData={createdWebhook}
+        webhookData={createdWebhook || undefined}
         onViewWebhook={handleViewWebhook}
         onCreateAnother={handleCreateAnother}
       />

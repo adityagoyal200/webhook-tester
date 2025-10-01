@@ -72,7 +72,7 @@ const Dashboard = () => {
 
     try {
       // Load webhooks
-      const { data: webhooksData, error: webhooksError } = await webhookService.getUserWebhooks();
+      const { data: webhooksData, error: webhooksError } = await webhookService.getUserWebhooks(user.id);
       if (webhooksError) {
         setError(webhooksError.message);
         return;

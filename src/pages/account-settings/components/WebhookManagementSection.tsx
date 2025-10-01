@@ -29,7 +29,12 @@ const WebhookManagementSection = () => {
       setError(null);
 
       try {
-        const { data, error: webhooksError } = await webhookService.getWebhooks(user.id);
+        const hasSupabaseEnv = Boolean((import.meta as any)?.env?.VITE_SUPABASE_URL) && Boolean((import.meta as any)?.env?.VITE_SUPABASE_ANON_KEY);
+        if (!hasSupabaseEnv) {
+          setError('Missing Supabase configuration. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env');
+          return;
+        }
+        const { data, error: webhooksError } = await webhookService.getUserWebhooks(user.id);
         
         if (webhooksError) {
           setError(webhooksError.message || 'Failed to load webhooks');
@@ -122,7 +127,7 @@ const WebhookManagementSection = () => {
     }
   };
 
-  const handleNotificationChange = (setting) => {
+  const handleNotificationChange = (setting: keyof typeof notificationSettings) => {
     setNotificationSettings(prev => ({
       ...prev,
       [setting]: !prev?.[setting]
@@ -146,9 +151,9 @@ const WebhookManagementSection = () => {
               variant="outline"
               size="sm"
               onClick={handleSelectAll}
-              iconName={selectedWebhooks?.length === mockWebhooks?.length ? "Square" : "CheckSquare"}
+              iconName={selectedWebhooks?.length === webhooks?.length ? "Square" : "CheckSquare"}
             >
-              {selectedWebhooks?.length === mockWebhooks?.length ? 'Deselect All' : 'Select All'}
+              {selectedWebhooks?.length === webhooks?.length ? 'Deselect All' : 'Select All'}
             </Button>
             <Button
               variant="outline"

@@ -18,8 +18,9 @@ function Image({
       src={src}
       alt={alt}
       className={className}
+      loading={props?.loading ?? 'lazy'}
       onError={(e) => {
-        e.currentTarget.src = "/assets/images/no_image.png";
+        e.currentTarget.src = "/vite.svg";
       }}
       {...props}
     />

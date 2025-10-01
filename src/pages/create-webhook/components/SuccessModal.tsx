@@ -2,10 +2,28 @@ import React from 'react';
 import Button from '../../../components/ui/Button';
 import Icon from '../../../components/AppIcon';
 
-const SuccessModal = ({ isOpen, onClose, webhookData, onViewWebhook, onCreateAnother }) => {
+const SuccessModal = ({ isOpen, onClose, webhookData, onViewWebhook, onCreateAnother }: {
+  isOpen: boolean;
+  onClose: () => void;
+  webhookData?: {
+    id?: string;
+    identifier?: string;
+    httpMethods?: string[];
+    description?: string;
+  };
+  onViewWebhook: () => void;
+  onCreateAnother: () => void;
+}) => {
   if (!isOpen) return null;
 
-  const webhookUrl = `https://api.hookcatch.com/webhook/${webhookData?.identifier}`;
+  // Compose functions base URL similar to WebhookPreview
+  const configuredBase = (import.meta as any)?.env?.VITE_FUNCTIONS_BASE_URL as string | undefined;
+  const supabaseUrl = (import.meta as any)?.env?.VITE_SUPABASE_URL as string | undefined;
+  const functionsBase = configuredBase || (supabaseUrl ? supabaseUrl.replace('.supabase.co', '.functions.supabase.co') : 'https://your-project-ref.functions.supabase.co');
+  const basePath = `${functionsBase}/catch-webhook`;
+  const webhookUrl = webhookData?.id
+    ? `${basePath}/${webhookData.id}`
+    : `${basePath}/${webhookData?.identifier ?? 'your-identifier'}`;
 
   const copyToClipboard = async () => {
     try {

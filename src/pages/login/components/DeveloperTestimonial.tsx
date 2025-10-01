@@ -7,7 +7,8 @@ const DeveloperTestimonial = () => {
     author: "Sarah Chen",
     role: "Senior Backend Developer",
     company: "TechFlow Solutions",
-    avatar: "https://images.unsplash.com/photo-1494790108755-2616b612b786?w=64&h=64&fit=crop&crop=face"
+    // Use local asset to avoid external image loading issues
+    avatar: "/vite.svg"
   };
 
   return (

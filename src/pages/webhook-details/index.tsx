@@ -7,6 +7,7 @@ import RequestFilters from './components/RequestFilters';
 import RequestTable from './components/RequestTable';
 import RealTimeIndicator from './components/RealTimeIndicator';
 import WebhookTestModal from './components/WebhookTestModal';
+import { webhookService } from '../../services/webhookService';
 
 type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
@@ -34,161 +35,11 @@ const WebhookDetails = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   
-  // Mock webhook data
-  const [webhook] = useState({
-    id: id || 'wh_1234567890',
-    name: 'Payment Processing Webhook',
-    url: 'https://hooks.hookcatch.com/wh_1234567890',
-    createdAt: new Date('2025-09-15T10:30:00Z'),
-    totalRequests: 1247,
-    todayRequests: 23,
-    avgResponseTime: 145,
-    status: 'active'
-  });
+  // Loaded webhook data
+  const [webhook, setWebhook] = useState<any | null>(null);
 
-  // Mock requests data
-  const [allRequests] = useState<RequestRecord[]>([
-    {
-      id: 'req_001',
-      timestamp: new Date('2025-10-01T09:30:00Z'),
-      method: 'POST',
-      status: 200,
-      ipAddress: '192.168.1.100',
-      payloadSize: 1024,
-      responseTime: 120,
-      payload: {
-        event: 'payment.completed',
-        data: {
-          id: 'pay_1234567890',
-          amount: 2999,
-          currency: 'usd',
-          customer: {
-            id: 'cus_1234567890',
-            email: 'john.doe@example.com',
-            name: 'John Doe'
-          },
-          metadata: {
-            order_id: 'order_123',
-            source: 'web_checkout'
-          }
-        },
-        created: 1696147800
-      },
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Stripe/1.0 (+https://stripe.com/docs/webhooks)',
-        'Stripe-Signature': 't=1696147800,v1=abc123def456...',
-        'X-Forwarded-For': '192.168.1.100'
-      },
-      responseHeaders: {
-        'Content-Type': 'application/json',
-        'X-Response-Time': '120ms'
-      }
-    },
-    {
-      id: 'req_002',
-      timestamp: new Date('2025-10-01T09:25:00Z'),
-      method: 'POST',
-      status: 201,
-      ipAddress: '10.0.0.50',
-      payloadSize: 2048,
-      responseTime: 95,
-      payload: {
-        event: 'customer.created',
-        data: {
-          id: 'cus_0987654321',
-          email: 'jane.smith@example.com',
-          name: 'Jane Smith',
-          phone: '+1-555-0123',
-          address: {
-            line1: '123 Main St',
-            city: 'San Francisco',
-            state: 'CA',
-            postal_code: '94105',
-            country: 'US'
-          }
-        },
-        created: 1696147500
-      },
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'MyApp/2.1.0',
-        'Authorization': 'Bearer sk_test_...',
-        'X-Request-ID': 'req_abc123'
-      },
-      responseHeaders: {
-        'Content-Type': 'application/json',
-        'X-Response-Time': '95ms'
-      }
-    },
-    {
-      id: 'req_003',
-      timestamp: new Date('2025-10-01T09:20:00Z'),
-      method: 'PUT',
-      status: 400,
-      ipAddress: '172.16.0.25',
-      payloadSize: 512,
-      responseTime: 200,
-      payload: {
-        error: 'Invalid request format',
-        details: 'Missing required field: customer_id',
-        timestamp: '2025-10-01T09:20:00Z'
-      },
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'TestClient/1.0',
-        'X-API-Key': 'test_key_123'
-      },
-      responseHeaders: {
-        'Content-Type': 'application/json',
-        'X-Error-Code': 'VALIDATION_ERROR',
-        'X-Response-Time': '200ms'
-      }
-    },
-    {
-      id: 'req_004',
-      timestamp: new Date('2025-10-01T09:15:00Z'),
-      method: 'GET',
-      status: 404,
-      ipAddress: '203.0.113.10',
-      payloadSize: 0,
-      responseTime: 50,
-      payload: null,
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5'
-      },
-      responseHeaders: {
-        'Content-Type': 'text/html',
-        'X-Response-Time': '50ms'
-      }
-    },
-    {
-      id: 'req_005',
-      timestamp: new Date('2025-10-01T09:10:00Z'),
-      method: 'DELETE',
-      status: 500,
-      ipAddress: '198.51.100.5',
-      payloadSize: 256,
-      responseTime: 1500,
-      payload: {
-        action: 'delete_webhook',
-        webhook_id: 'wh_test_123',
-        force: true
-      },
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer sk_live_...',
-        'X-Idempotency-Key': 'idem_key_456'
-      },
-      responseHeaders: {
-        'Content-Type': 'application/json',
-        'X-Error-Type': 'INTERNAL_SERVER_ERROR',
-        'X-Response-Time': '1500ms'
-      }
-    }
-  ]);
+  // Loaded requests data
+  const [allRequests, setAllRequests] = useState<RequestRecord[]>([]);
 
   const [filters, setFilters] = useState<Filters>({
     search: '',
@@ -229,20 +80,69 @@ const WebhookDetails = () => {
     setFilteredRequests(filtered);
   }, [filters, allRequests]);
 
-  // Simulate real-time connection
+  // Load webhook and requests from Supabase and subscribe to realtime
   useEffect(() => {
-    const interval = setInterval(() => {
-      // Randomly simulate connection status
-      setIsConnected(Math.random() > 0.1);
-      
-      // Randomly add new requests notification
-      if (Math.random() > 0.8) {
-        setNewRequestsCount(prev => prev + Math.floor(Math.random() * 3) + 1);
-      }
-    }, 5000);
+    const loadData = async () => {
+      if (!id) return;
+      try {
+        const { data: webhookData } = await webhookService.getWebhook(id);
+        if (webhookData) {
+          setWebhook({
+            id: webhookData.id,
+            name: webhookData.name,
+            url: webhookData.url,
+            createdAt: new Date(webhookData.created_at),
+            totalRequests: webhookData?.webhook_analytics?.total_requests ?? 0,
+            todayRequests: 0,
+            avgResponseTime: webhookData?.webhook_analytics?.avg_response_time_ms ?? 0,
+            status: webhookData.status
+          });
+        }
 
-    return () => clearInterval(interval);
-  }, []);
+        const { data: requestsData } = await webhookService.getWebhookRequests(id, 1, 50);
+        if (requestsData) {
+          const transformed = requestsData.map((r: any) => ({
+            id: r.id,
+            timestamp: new Date(r.created_at),
+            method: (r.method || 'POST') as HTTPMethod,
+            status: r.response_status ?? 200,
+            ipAddress: r.ip_address || 'unknown',
+            payloadSize: r.payload ? JSON.stringify(r.payload).length : 0,
+            responseTime: r.processing_time_ms ?? 0,
+            payload: r.payload ?? null,
+            headers: r.headers ?? {},
+            responseHeaders: {}
+          }));
+          setAllRequests(transformed);
+        }
+
+        const channel = webhookService.subscribeToWebhookRequests(id, (payload) => {
+          const newRecord: any = (payload as any)?.new;
+          if (newRecord?.webhook_id === id) {
+            setAllRequests(prev => [{
+              id: newRecord.id,
+              timestamp: new Date(newRecord.created_at),
+              method: (newRecord.method || 'POST') as HTTPMethod,
+              status: newRecord.response_status ?? 200,
+              ipAddress: newRecord.ip_address || 'unknown',
+              payloadSize: newRecord.payload ? JSON.stringify(newRecord.payload).length : 0,
+              responseTime: newRecord.processing_time_ms ?? 0,
+              payload: newRecord.payload ?? null,
+              headers: newRecord.headers ?? {},
+              responseHeaders: {}
+            }, ...prev]);
+            setNewRequestsCount(prev => prev + 1);
+          }
+        });
+        setIsConnected(!!channel);
+
+        return () => webhookService.unsubscribeFromWebhookRequests(channel);
+      } catch (e) {
+        // swallow errors in UI
+      }
+    };
+    loadData();
+  }, [id]);
 
   const handleCopyUrl = async () => {
     try {
@@ -252,8 +152,10 @@ const WebhookDetails = () => {
     }
   };
 
-  const handleDeleteWebhook = () => {
+  const handleDeleteWebhook = async () => {
+    if (!id) return;
     if (window.confirm('Are you sure you want to delete this webhook? This action cannot be undone.')) {
+      await webhookService.deleteWebhook(id);
       navigate('/dashboard');
     }
   };
@@ -284,10 +186,65 @@ const WebhookDetails = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handleReplayRequest = (request: RequestRecord) => {
-    console.log('Replaying request:', request);
-    // In a real app, this would send the request to a test endpoint
-    alert(`Replaying ${request?.method} request from ${request?.timestamp?.toLocaleString()}`);
+  const handleTestWebhook = () => {
+    setShowTestModal(true);
+  };
+
+  const handleSendTestWebhook = async (testData: any) => {
+    try {
+      // Send the test webhook
+      const response = await fetch(testData.url, {
+        method: testData.method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...testData.headers
+        },
+        body: testData.method !== 'GET' ? JSON.stringify(testData.payload) : undefined
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      // The webhook should now appear in the request history
+      // In a real implementation, you might want to refresh the requests list
+      console.log('Test webhook sent successfully');
+    } catch (error) {
+      console.error('Failed to send test webhook:', error);
+      throw error;
+    }
+  };
+
+  const handleReplayRequest = async (request: RequestRecord) => {
+    try {
+      const replayUrl = webhook?.url || '';
+      
+      const replayOptions: RequestInit = {
+        method: request.method,
+        headers: {
+          ...request.headers,
+          'X-Replay-Source': 'HookCatch',
+          'X-Original-Timestamp': request.timestamp.toString(),
+          'X-Replay-ID': request.id
+        }
+      };
+
+      // Add body for non-GET requests
+      if (request.method !== 'GET' && request.payload) {
+        replayOptions.body = JSON.stringify(request.payload);
+      }
+
+      const response = await fetch(replayUrl, replayOptions);
+      
+      if (response.ok) {
+        alert(`✅ Request replayed successfully!\n\nMethod: ${request.method}\nStatus: ${response.status}\nOriginal: ${request.timestamp.toLocaleString()}`);
+      } else {
+        alert(`⚠️ Replay completed with status ${response.status}\n\nMethod: ${request.method}\nOriginal: ${request.timestamp.toLocaleString()}`);
+      }
+    } catch (error) {
+      console.error('Replay failed:', error);
+      alert(`❌ Replay failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
 
   const handleClearNewRequests = () => {
@@ -329,6 +286,7 @@ const WebhookDetails = () => {
           webhook={webhook}
           onCopyUrl={handleCopyUrl}
           onDeleteWebhook={handleDeleteWebhook}
+          onTestWebhook={handleTestWebhook}
         />
 
         <RequestFilters
@@ -348,6 +306,13 @@ const WebhookDetails = () => {
           isConnected={isConnected}
           newRequestsCount={newRequestsCount}
           onClearNewRequests={handleClearNewRequests}
+        />
+
+        <WebhookTestModal
+          isOpen={showTestModal}
+          onClose={() => setShowTestModal(false)}
+          webhookUrl={webhook?.url || ''}
+          onSendTest={handleSendTestWebhook}
         />
       </div>
     </div>

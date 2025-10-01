@@ -2,14 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
 import { userService } from '../../../services/userService';
-import { authService } from '../../../services/authService';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 
 const ProfileSection = () => {
   const navigate = useNavigate();
-  const { user, profile, signOut } = useAuth();
+  const { user, userProfile, signOut, updatePassword } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -18,7 +17,7 @@ const ProfileSection = () => {
   const [success, setSuccess] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     email: user?.email || '',
-    fullName: profile?.full_name || '',
+    fullName: userProfile?.full_name || '',
     currentPassword: '',
     newPassword: '',
     confirmPassword: ''
@@ -26,14 +25,14 @@ const ProfileSection = () => {
 
   // Update form data when user or profile changes
   useEffect(() => {
-    if (user?.email || profile?.full_name) {
+    if (user?.email || userProfile?.full_name) {
       setFormData(prev => ({
         ...prev,
         email: user?.email || prev.email,
-        fullName: profile?.full_name || prev.fullName
+        fullName: userProfile?.full_name || prev.fullName
       }));
     }
-  }, [user?.email, profile?.full_name]);
+  }, [user?.email, userProfile?.full_name]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -93,10 +92,7 @@ const ProfileSection = () => {
     setError(null);
 
     try {
-      const { error: passwordError } = await authService.updatePassword({
-        currentPassword: formData.currentPassword,
-        newPassword: formData.newPassword
-      });
+      const { error: passwordError } = await updatePassword(formData.newPassword);
 
       if (passwordError) {
         setError(passwordError.message || 'Failed to update password');

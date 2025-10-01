@@ -3,7 +3,7 @@ import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/
 
 export const webhookService = {
   // Get all webhooks for the current user
-  async getUserWebhooks() {
+  async getUserWebhooks(userId?: string) {
     try {
       const { data, error } = await supabase
         ?.from('webhooks')
@@ -16,6 +16,7 @@ export const webhookService = {
             avg_response_time_ms
           )
         `)
+        ?.eq(userId ? 'user_id' : 'id', userId ?? undefined)
         ?.order('created_at', { ascending: false });
 
       if (error) {
@@ -68,7 +69,7 @@ export const webhookService = {
     try {
       const { data, error } = await supabase
         ?.from('webhooks')
-        ?.insert([{
+        ?.insert([{ 
           ...webhookData,
           secret_key: await this.generateSecretKey()
         }])
@@ -77,6 +78,26 @@ export const webhookService = {
 
       if (error) {
         return { data: null, error };
+      }
+
+      // Compose functions base URL for this webhook
+      const supabaseUrl = (import.meta as any)?.env?.VITE_SUPABASE_URL as string | undefined;
+      const configuredBase = (import.meta as any)?.env?.VITE_FUNCTIONS_BASE_URL as string | undefined;
+      const functionsBase = configuredBase || (supabaseUrl ? supabaseUrl.replace('.supabase.co', '.functions.supabase.co') : '');
+
+      // If we have a base, set the webhook URL to the catch function with webhook id
+      if (functionsBase && data?.id) {
+        const url = `${functionsBase}/catch-webhook/${data.id}`;
+        const { data: updated, error: updateError } = await supabase
+          ?.from('webhooks')
+          ?.update({ url })
+          ?.eq('id', data.id)
+          ?.select()
+          ?.single();
+
+        if (!updateError) {
+          return { data: updated, error: null };
+        }
       }
 
       return { data, error: null };

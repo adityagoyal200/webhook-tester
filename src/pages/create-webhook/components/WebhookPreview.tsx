@@ -2,11 +2,18 @@ import React, { useState } from 'react';
 import Button from '../../../components/ui/Button';
 import Icon from '../../../components/AppIcon';
 
-const WebhookPreview = ({ identifier, httpMethods = ['POST'], description }) => {
+const WebhookPreview = ({ identifier, httpMethods = ['POST'], description }: {
+  identifier?: string;
+  httpMethods?: string[];
+  description?: string;
+}) => {
   const [copied, setCopied] = useState(false);
   
-  const baseUrl = 'https://api.hookcatch.com/webhook';
-  const webhookUrl = identifier ? `${baseUrl}/${identifier}` : `${baseUrl}/your-identifier`;
+  const configuredBase = (import.meta as any)?.env?.VITE_FUNCTIONS_BASE_URL as string | undefined;
+  const supabaseUrl = (import.meta as any)?.env?.VITE_SUPABASE_URL as string | undefined;
+  const functionsBase = configuredBase || (supabaseUrl ? supabaseUrl.replace('.supabase.co', '.functions.supabase.co') : 'https://your-project-ref.functions.supabase.co');
+  const basePath = `${functionsBase}/catch-webhook`;
+  const webhookUrl = identifier ? `${basePath}/${identifier}` : `${basePath}/your-identifier`;
 
   const copyToClipboard = async () => {
     try {
@@ -17,8 +24,7 @@ const WebhookPreview = ({ identifier, httpMethods = ['POST'], description }) => 
       console.error('Failed to copy:', err);
     }
   };
-
-  const generateCurlCommand = (method) => {
+  const generateCurlCommand = (method: string) => {
     return `curl -X ${method} "${webhookUrl}" \\
   -H "Content-Type: application/json" \\
   -d '{"test": "data", "timestamp": "${new Date()?.toISOString()}"}'`;
