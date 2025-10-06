@@ -8,6 +8,7 @@ import AccountSettings from './pages/account-settings';
 import WebhookDetails from './pages/webhook-details';
 import Dashboard from './pages/dashboard';
 import Register from './pages/register';
+import PricingPage from './pages/pricing';
 import { useAuth } from './contexts/AuthContext';
 
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -47,6 +48,7 @@ const Routes = () => {
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
         <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
         <Route path="/register" element={<PublicRoute><Register /></PublicRoute>} />
+        <Route path="/pricing" element={<PricingPage />} />
         <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/create-webhook" element={<ProtectedRoute><CreateWebhook /></ProtectedRoute>} />
         <Route path="/account-settings" element={<ProtectedRoute><AccountSettings /></ProtectedRoute>} />

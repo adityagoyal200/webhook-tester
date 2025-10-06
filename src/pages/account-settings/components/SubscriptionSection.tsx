@@ -1,18 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { userService } from '../../../services/userService';
+import { pricingService } from '../../../services/pricingService';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import FeatureGate from '../../../components/FeatureGate';
+import { useNavigate } from 'react-router-dom';
 
 const SubscriptionSection = () => {
   const { user, profile } = useAuth();
+  const navigate = useNavigate();
   const [currentTier, setCurrentTier] = useState('free');
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [usageData, setUsageData] = useState({
     webhooksUsed: 0,
-    webhooksLimit: 5,
+    webhooksLimit: 1,
     requestsThisMonth: 0,
-    requestsLimit: 1000,
+    requestsLimit: 150,
+    dailyRequests: 0,
     storageUsed: '0 MB',
     storageLimit: '100 MB'
   });
@@ -41,6 +46,7 @@ const SubscriptionSection = () => {
             webhooksLimit: limits.webhookLimit,
             requestsThisMonth: limits.currentRequests,
             requestsLimit: limits.requestLimit,
+            dailyRequests: limits.dailyRequests || 0,
             storageUsed: '2.3 MB', // TODO: Calculate actual storage usage
             storageLimit: '100 MB'
           });
@@ -80,9 +86,7 @@ const SubscriptionSection = () => {
   };
 
   const handleUpgrade = () => {
-    // Mock Stripe integration
-    console.log('Redirecting to Stripe checkout...');
-    setShowUpgradeModal(false);
+    navigate('/pricing');
   };
 
   const handleDowngrade = () => {
@@ -123,9 +127,11 @@ const SubscriptionSection = () => {
         </div>
         <div className="flex items-center space-x-2">
           <div className={`px-3 py-1 rounded-full text-xs font-medium ${
-            currentTier === 'free' ?'bg-muted text-muted-foreground' :'bg-primary/10 text-primary'
+            currentTier === 'free' ? 'bg-muted text-muted-foreground' : 
+            currentTier === 'plus' ? 'bg-blue-100 text-blue-800' : 
+            'bg-yellow-100 text-yellow-800'
           }`}>
-            {currentTier === 'free' ? 'Free Tier' : 'Pro Tier'}
+            {pricingService.getTier(currentTier)?.name || 'Unknown Tier'}
           </div>
         </div>
       </div>
@@ -154,6 +160,13 @@ const SubscriptionSection = () => {
               used={usageData?.requestsThisMonth} 
               limit={usageData?.requestsLimit} 
             />
+            {currentTier === 'free' && (
+              <UsageBar 
+                label="Daily requests (Free tier limit)" 
+                used={usageData?.dailyRequests || 0} 
+                limit={5} 
+              />
+            )}
             <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Storage used</span>
               <span className="font-medium text-foreground">
@@ -179,24 +192,38 @@ const SubscriptionSection = () => {
       <div className="flex space-x-3 mt-6 pt-6 border-t border-border">
         {currentTier === 'free' ? (
           <Button 
-            onClick={() => setShowUpgradeModal(true)}
+            onClick={handleUpgrade}
             iconName="Zap"
           >
-            Upgrade to Pro
+            Upgrade to Plus or Pro
           </Button>
-        ) : (
+        ) : currentTier === 'plus' ? (
           <>
-            <Button variant="outline" onClick={handleDowngrade}>
-              Downgrade to Free
+            <Button 
+              onClick={handleUpgrade}
+              iconName="Crown"
+            >
+              Upgrade to Pro
             </Button>
             <Button variant="outline" iconName="CreditCard">
               Manage Billing
             </Button>
           </>
+        ) : (
+          <>
+            <Button variant="outline" iconName="CreditCard">
+              Manage Billing
+            </Button>
+            <Button variant="outline" onClick={handleDowngrade}>
+              Change Plan
+            </Button>
+          </>
         )}
-        <Button variant="ghost" iconName="BarChart3">
-          View Analytics
-        </Button>
+        <FeatureGate feature="analytics">
+          <Button variant="ghost" iconName="BarChart3">
+            View Analytics
+          </Button>
+        </FeatureGate>
       </div>
       {/* Upgrade Modal */}
       {showUpgradeModal && (

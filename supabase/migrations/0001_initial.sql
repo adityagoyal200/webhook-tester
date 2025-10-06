@@ -60,10 +60,22 @@ create table if not exists public.user_profiles (
   full_name text,
   avatar_url text,
   subscription_tier text default 'free',
-  webhook_limit integer default 5,
-  request_limit integer default 1000,
+  webhook_limit integer default 1,
+  request_limit integer default 150,
   created_at timestamp with time zone default now(),
   updated_at timestamp with time zone default now()
+);
+
+-- =========================
+-- Login History
+-- =========================
+create table if not exists public.login_history (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  timestamp timestamp with time zone default now(),
+  ip_address text,
+  device_info text,
+  status text default 'success'
 );
 
 -- =========================
@@ -73,6 +85,7 @@ alter table if exists public.webhooks enable row level security;
 alter table if exists public.webhook_requests enable row level security;
 alter table if exists public.webhook_analytics enable row level security;
 alter table if exists public.user_profiles enable row level security;
+alter table if exists public.login_history enable row level security;
 
 -- =========================
 -- Policies: Webhooks
@@ -130,6 +143,16 @@ create policy "Users can view analytics for their webhooks"
     )
   );
 
+drop policy if exists "System can insert analytics for webhooks" on public.webhook_analytics;
+create policy "System can insert analytics for webhooks" 
+  on public.webhook_analytics for insert 
+  with check (true);
+
+drop policy if exists "System can update analytics for webhooks" on public.webhook_analytics;
+create policy "System can update analytics for webhooks" 
+  on public.webhook_analytics for update 
+  using (true);
+
 -- =========================
 -- Policies: User Profiles
 -- =========================
@@ -142,6 +165,19 @@ drop policy if exists "Users can insert their own profile" on public.user_profil
 create policy "Users can insert their own profile" 
   on public.user_profiles for insert 
   with check (auth.uid() = id OR auth.role() = 'service_role');
+
+-- =========================
+-- Policies: Login History
+-- =========================
+drop policy if exists "Users can view their own login history" on public.login_history;
+create policy "Users can view their own login history" 
+  on public.login_history for select 
+  using (auth.uid() = user_id);
+
+drop policy if exists "Users can insert their own login history" on public.login_history;
+create policy "Users can insert their own login history" 
+  on public.login_history for insert 
+  with check (auth.uid() = user_id);
 
 drop policy if exists "Users can update their own profile" on public.user_profiles;
 create policy "Users can update their own profile" 
@@ -265,8 +301,14 @@ end$$;
 -- Auto-update webhook_analytics
 -- =========================
 create or replace function public.update_webhook_analytics()
-returns trigger as $$
+returns trigger 
+language plpgsql
+security definer
+set search_path = public
+as $$
 begin
+  -- Temporarily disable RLS for this function
+  set local row_security = off;
   update public.webhook_analytics
   set 
     total_requests = total_requests + 1,
@@ -276,19 +318,20 @@ begin
       ((avg_response_time_ms * (total_requests)) + coalesce(new.processing_time_ms,0)) / (total_requests + 1)
   where webhook_id = new.webhook_id;
 
-  insert into public.webhook_analytics (webhook_id, total_requests, successful_requests, failed_requests, avg_response_time_ms)
-  values (
-    new.webhook_id,
-    1,
-    case when new.status >= 200 and new.status < 300 then 1 else 0 end,
-    case when new.status >= 400 then 1 else 0 end,
-    coalesce(new.processing_time_ms,0)
-  )
-  on conflict (webhook_id) do nothing;
+  -- If no rows were updated, insert a new record
+  if not found then
+    insert into public.webhook_analytics (webhook_id, total_requests, successful_requests, failed_requests, avg_response_time_ms)
+    values (
+      new.webhook_id,
+      1,
+      case when new.status >= 200 and new.status < 300 then 1 else 0 end,
+      case when new.status >= 400 then 1 else 0 end,
+      coalesce(new.processing_time_ms,0)
+    );
+  end if;
 
   return new;
-end;
-$$ language plpgsql;
+end$$;
 
 do $$
 begin

@@ -1,4 +1,5 @@
 import { supabase, SUPABASE_URL } from '../lib/supabase';
+import { userService } from './userService';
 import type { RealtimeChannel, RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 export const webhookService = {
@@ -7,7 +8,18 @@ export const webhookService = {
     const envSupabaseUrl = (import.meta as any)?.env?.VITE_SUPABASE_URL as string | undefined;
     const configuredBase = (import.meta as any)?.env?.VITE_FUNCTIONS_BASE_URL as string | undefined;
     const resolvedSupabaseUrl = envSupabaseUrl || SUPABASE_URL;
-    return configuredBase || (resolvedSupabaseUrl ? resolvedSupabaseUrl.replace('.supabase.co', '.functions.supabase.co') : '');
+    
+    if (configuredBase) {
+      // Ensure configured base has https:// protocol
+      return configuredBase.startsWith('http') ? configuredBase : `https://${configuredBase}`;
+    }
+    
+    if (resolvedSupabaseUrl) {
+      const functionsUrl = resolvedSupabaseUrl.replace('.supabase.co', '.functions.supabase.co');
+      return functionsUrl.startsWith('http') ? functionsUrl : `https://${functionsUrl}`;
+    }
+    
+    return '';
   },
 
   // Backfill missing webhook URLs for a user
@@ -54,7 +66,7 @@ export const webhookService = {
             avg_response_time_ms
           )
         `)
-        ?.eq(userId ? 'user_id' : 'id', userId ?? undefined)
+        ?.eq('user_id', userId)
         ?.order('created_at', { ascending: false });
 
       if (error) {
@@ -113,6 +125,22 @@ export const webhookService = {
   // Create a new webhook
   async createWebhook(webhookData: Record<string, any>) {
     try {
+      // Check if user can create more webhooks
+      const userId = webhookData.user_id;
+      if (!userId) {
+        return { data: null, error: { message: 'User ID is required' } };
+      }
+
+      const { data: limits } = await userService.checkSubscriptionLimits(userId);
+      if (limits && !limits.canCreateWebhook) {
+        return { 
+          data: null, 
+          error: { 
+            message: `Webhook limit reached (${limits.currentWebhooks}/${limits.webhookLimit}). Upgrade your plan to create more webhooks.` 
+          } 
+        };
+      }
+
       const functionsBase = this.resolveFunctionsBase();
 
       let webhookUrl = ''; 
@@ -284,16 +312,18 @@ export const webhookService = {
   },
 
   // Test webhook endpoint
-  async testWebhook(webhookId: string, testPayload: Record<string, any> = {}) {
+  async testWebhook(webhookId: string, testPayload: Record<string, any> = {}, testMethod: string = 'POST', testHeaders: Record<string, string> = {}) {
     try {
-      // In a real application, this would trigger a test request to the webhook URL
-      // For now, we'll create a test request record
       const { data, error } = await supabase
         ?.from('webhook_requests')
         ?.insert([{
           webhook_id: webhookId,
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'User-Agent': 'HookCatch-Test/1.0' },
+          method: testMethod,
+          headers: { 
+            'Content-Type': 'application/json', 
+            'User-Agent': 'HookCatch-Test/1.0',
+            ...testHeaders
+          },
           payload: testPayload,
           response_status: 200,
           status: 200,
@@ -339,6 +369,90 @@ export const webhookService = {
   unsubscribeFromWebhookRequests(channel: RealtimeChannel | null) {
     if (channel) {
       supabase?.removeChannel(channel);
+    }
+  },
+
+  // Get webhook statistics
+  async getWebhookStats(webhookId: string) {
+    try {
+      // Get total requests count
+      const { count: totalRequests, error: totalError } = await supabase
+        ?.from('webhook_requests')
+        ?.select('*', { count: 'exact', head: true })
+        ?.eq('webhook_id', webhookId);
+
+      if (totalError) {
+        return { data: null, error: totalError };
+      }
+
+      // Get today's requests count
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const { count: todayRequests, error: todayError } = await supabase
+        ?.from('webhook_requests')
+        ?.select('*', { count: 'exact', head: true })
+        ?.eq('webhook_id', webhookId)
+        ?.gte('created_at', today.toISOString());
+
+      if (todayError) {
+        return { data: null, error: todayError };
+      }
+
+      // Get success/error rates
+      const { count: successCount, error: successError } = await supabase
+        ?.from('webhook_requests')
+        ?.select('*', { count: 'exact', head: true })
+        ?.eq('webhook_id', webhookId)
+        ?.gte('status', 200)
+        ?.lt('status', 400);
+
+      if (successError) {
+        return { data: null, error: successError };
+      }
+
+      const { count: errorCount, error: errorError } = await supabase
+        ?.from('webhook_requests')
+        ?.select('*', { count: 'exact', head: true })
+        ?.eq('webhook_id', webhookId)
+        ?.gte('status', 400);
+
+      if (errorError) {
+        return { data: null, error: errorError };
+      }
+
+      // Get average response time
+      const { data: responseTimeData, error: responseTimeError } = await supabase
+        ?.from('webhook_requests')
+        ?.select('processing_time_ms')
+        ?.eq('webhook_id', webhookId)
+        ?.not('processing_time_ms', 'is', null);
+
+      if (responseTimeError) {
+        return { data: null, error: responseTimeError };
+      }
+
+      const avgResponseTime = responseTimeData && responseTimeData.length > 0
+        ? responseTimeData.reduce((sum, req) => sum + (req.processing_time_ms || 0), 0) / responseTimeData.length
+        : 0;
+
+      const total = totalRequests || 0;
+      const success = successCount || 0;
+      const error = errorCount || 0;
+
+      const stats = {
+        totalRequests: total,
+        todayRequests: todayRequests || 0,
+        avgResponseTime: Math.round(avgResponseTime),
+        successRate: total > 0 ? (success / total) * 100 : 0,
+        errorRate: total > 0 ? (error / total) * 100 : 0,
+      };
+
+      return { data: stats, error: null };
+    } catch (error) {
+      return { 
+        data: null, 
+        error: { message: 'Failed to load webhook statistics. Please try again.' }
+      };
     }
   }
 };

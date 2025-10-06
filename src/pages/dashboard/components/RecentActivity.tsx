@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import FeatureGate from '../../../components/FeatureGate';
 
 export type HTTPMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH';
 
@@ -56,7 +57,8 @@ const RecentActivity: React.FC<RecentActivityProps> = ({ activities, onViewDetai
   };
 
   return (
-    <div className="bg-card border border-border rounded-lg">
+    <FeatureGate feature="webhookHistory">
+      <div className="bg-card border border-border rounded-lg">
       <div className="p-4 border-b border-border">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold text-foreground">Recent Activity</h3>
@@ -163,6 +165,7 @@ const RecentActivity: React.FC<RecentActivityProps> = ({ activities, onViewDetai
         )}
       </div>
     </div>
+    </FeatureGate>
   );
 };
 

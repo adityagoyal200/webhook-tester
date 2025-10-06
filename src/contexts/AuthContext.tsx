@@ -17,6 +17,7 @@ type AuthContextValue = {
   resetPassword: (email: string) => Promise<any>;
   updatePassword: (password: string) => Promise<any>;
   updateProfile: (updates: Record<string, any>) => Promise<{ data?: any; error?: any }>;
+  refreshProfile: () => Promise<{ data?: any; error?: any }>;
   isAuthenticated: boolean;
 };
 
@@ -42,12 +43,16 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
       if (!userId) return
       setProfileLoading(true)
       try {
+        console.log('AuthContext loading profile for user:', userId);
         const { data, error } = await supabase?.from('user_profiles')?.select('*')?.eq('id', userId)?.single()
         if (!error && data) {
+          console.log('AuthContext profile loaded:', data);
           setUserProfile(data)
         } else if (error && error?.code !== 'PGRST116') {
           // Log non-404 errors but don't show to user during auth flow
           console.error('Profile load error:', error?.message)
+        } else if (error?.code === 'PGRST116') {
+          console.log('Profile not found, user might be new');
         }
       } catch (error) {
         console.error('Profile load error:', error)
@@ -91,6 +96,14 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
     return () => subscription?.unsubscribe()
   }, [])
 
+  // Ensure profile loads if user exists but profile is null
+  useEffect(() => {
+    if (user && !userProfile && !profileLoading) {
+      console.log('AuthContext: User exists but profile is null, retrying load for:', user.id);
+      profileOperations?.load(user?.id);
+    }
+  }, [user, userProfile, profileLoading])
+
   // Auth methods using authService
   const signIn = async (email: string, password: string) => {
     return await authService?.signIn(email, password);
@@ -121,12 +134,14 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
     if (!user) return { error: { message: 'No user logged in' } } as { error: { message: string } }
     
     try {
+      console.log('AuthContext updateProfile:', { userId: user.id, updates });
       const { data, error } = await supabase?.from('user_profiles')?.update(updates)?.eq('id', user?.id)?.select()
       if (error) {
         console.error('Supabase update error:', error);
         return { data: null, error };
       }
       if (data && data.length > 0) {
+        console.log('AuthContext profile updated:', data[0]);
         setUserProfile(data[0]) 
         return { data: data[0], error: null }
       } else {
@@ -134,7 +149,21 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
         return { data: null, error: { message: 'Profile not found or update failed.' } };
       }
     } catch (error) {
+      console.error('AuthContext updateProfile error:', error);
       return { error: { message: 'Network error. Please try again.' } }
+    }
+  }
+
+  const refreshProfile = async () => {
+    if (!user) return { error: { message: 'No user logged in' } } as { error: { message: string } }
+    
+    try {
+      console.log('AuthContext refreshProfile:', { userId: user.id });
+      profileOperations?.load(user?.id);
+      return { data: null, error: null };
+    } catch (error) {
+      console.error('AuthContext refreshProfile error:', error);
+      return { error: { message: 'Failed to refresh profile' } }
     }
   }
 
@@ -149,6 +178,7 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
     resetPassword,
     updatePassword,
     updateProfile,
+    refreshProfile,
     isAuthenticated: !!user
   }
 

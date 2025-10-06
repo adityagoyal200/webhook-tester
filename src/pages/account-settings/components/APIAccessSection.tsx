@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { useAuth } from '../../../contexts/AuthContext';
+import { userService } from '../../../services/userService';
+import { webhookService } from '../../../services/webhookService';
 import { supabase } from '../../../lib/supabase';
-import { v4 as uuidv4 } from 'uuid';
 
 interface ApiKey {
   id: string;
@@ -20,10 +21,94 @@ const APIAccessSection = () => {
   const [loadingKeys, setLoadingKeys] = useState(true);
   const [newKeyName, setNewKeyName] = useState('');
   const [isCreatingKey, setIsCreatingKey] = useState(false);
+  const [usageStats, setUsageStats] = useState({
+    requestsThisMonth: '0 / 1,000',
+    usedPercentage: 0,
+    rateLimitPerMinute: 60,
+    rateLimitPerHour: 1000,
+    rateLimitPerDay: 10000,
+  });
+  const [loadingUsage, setLoadingUsage] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchApiKeys();
-  }, []);
+    fetchUsageStats();
+    fetchEndpointStats();
+  }, [user?.id]);
+
+  const fetchEndpointStats = async () => {
+    if (!user?.id) return;
+
+    try {
+      // Get all webhooks for the user
+      const { data: webhooks, error: webhooksError } = await webhookService.getUserWebhooks(user.id);
+      if (webhooksError || !webhooks) return;
+
+      // Get requests for all webhooks
+      let totalRequests = 0;
+      const endpointStats = {
+        '/webhooks': 0,
+        '/webhooks/{id}': 0,
+        '/webhooks/{id}/requests': 0
+      };
+
+      for (const webhook of webhooks) {
+        const { data: requests } = await webhookService.getWebhookRequests(webhook.id, 1, 1000);
+        if (requests) {
+          totalRequests += requests.length;
+          
+          // Categorize requests by endpoint type
+          endpointStats['/webhooks'] += requests.filter(r => r.method === 'GET').length;
+          endpointStats['/webhooks/{id}'] += requests.filter(r => r.method === 'POST' || r.method === 'PUT' || r.method === 'PATCH').length;
+          endpointStats['/webhooks/{id}/requests'] += requests.filter(r => r.method === 'DELETE').length;
+        }
+      }
+
+      // Calculate percentages and update state
+      const updatedEndpoints = Object.entries(endpointStats).map(([path, requests]) => ({
+        path,
+        requests,
+        percentage: totalRequests > 0 ? Math.round((requests / totalRequests) * 100) : 0
+      }));
+
+      setTopEndpoints(updatedEndpoints);
+    } catch (error) {
+      console.error('Error fetching endpoint stats:', error);
+    }
+  };
+
+  const fetchUsageStats = async () => {
+    if (!user?.id) return;
+
+    setLoadingUsage(true);
+    setError(null);
+
+    try {
+      const { data: limits, error: limitsError } = await userService.checkSubscriptionLimits(user.id);
+      
+      if (limitsError) {
+        setError(limitsError.message || 'Failed to load usage data');
+        return;
+      }
+
+      if (limits) {
+        const usedPercentage = Math.round((limits.currentRequests / limits.requestLimit) * 100);
+        setUsageStats({
+          requestsThisMonth: `${limits.currentRequests.toLocaleString()} / ${limits.requestLimit.toLocaleString()}`,
+          usedPercentage,
+          rateLimitPerMinute: 60,
+          rateLimitPerHour: 1000,
+          rateLimitPerDay: limits.requestLimit,
+        });
+      }
+    } catch (err) {
+      console.error('Error loading usage stats:', err);
+      setError('Failed to load usage statistics');
+    } finally {
+      setLoadingUsage(false);
+    }
+  };
 
   const fetchApiKeys = async () => {
     if (!user) return;
@@ -45,14 +130,16 @@ const APIAccessSection = () => {
     if (!user || !newKeyName.trim()) return;
 
     setIsCreatingKey(true);
-    const newApiKey = uuidv4(); // Generate a new UUID for the API key
+    const newApiKey = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : Math.random().toString(36).substring(2) + Date.now().toString(36);
     const { data, error } = await supabase
       .from('api_keys')
       .insert({
         user_id: user.id,
         name: newKeyName,
         api_key: `sk_live_${newApiKey.replace(/-/g, '')}`,
-        permissions: ['read', 'write'], // Default permissions
+        permissions: ['read', 'write'], 
       })
       .select();
 
@@ -81,18 +168,12 @@ const APIAccessSection = () => {
     }
   };
 
-  const mockUsageStats = {
-    usedPercentage: 12.5,
-    requestsThisMonth: '1,247 / 10,000',
-    rateLimitPerMinute: 60,
-    rateLimitPerHour: 1000,
-    rateLimitPerDay: 10000,
-    topEndpoints: [
-      { path: '/webhooks', requests: 856, percentage: 68.7 },
-      { path: '/webhooks/{id}', requests: 234, percentage: 18.8 },
-      { path: '/webhooks/{id}/requests', requests: 157, percentage: 12.5 },
-    ],
-  };
+  // Calculate real top endpoints from webhook requests
+  const [topEndpoints, setTopEndpoints] = useState([
+    { path: '/webhooks', requests: 0, percentage: 0 },
+    { path: '/webhooks/{id}', requests: 0, percentage: 0 },
+    { path: '/webhooks/{id}/requests', requests: 0, percentage: 0 },
+  ]);
 
   return (
     <div className="bg-card border border-border rounded-lg p-6">
@@ -107,31 +188,54 @@ const APIAccessSection = () => {
         </div>
       </div>
 
+      {/* Error Display */}
+      {error && (
+        <div className="p-3 bg-error/10 border border-error/20 rounded-lg flex items-center space-x-2 mb-6">
+          <Icon name="AlertTriangle" size={16} className="text-error" />
+          <span className="text-sm text-error">{error}</span>
+        </div>
+      )}
+
       {/* Usage Statistics */}
       <div className="space-y-4 mb-6">
         <h3 className="font-medium text-foreground">Current Usage</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 border border-border rounded-lg">
-            <p className="text-sm text-muted-foreground">API Requests this month</p>
-            <p className="text-lg font-semibold text-foreground">{mockUsageStats.requestsThisMonth}</p>
+        {loadingUsage ? (
+          <div className="flex items-center justify-center py-8">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            <span className="ml-2 text-muted-foreground">Loading usage data...</span>
           </div>
-          <div className="p-4 border border-border rounded-lg">
-            <p className="text-sm text-muted-foreground">Per Minute</p>
-            <p className="text-lg font-semibold text-foreground">{mockUsageStats.rateLimitPerMinute}</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-4 border border-border rounded-lg">
+              <p className="text-sm text-muted-foreground">API Requests this month</p>
+              <p className="text-lg font-semibold text-foreground">{usageStats.requestsThisMonth}</p>
+              <div className="w-full bg-muted rounded-full h-2 mt-2">
+                <div 
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    usageStats.usedPercentage > 80 ? 'bg-error' : 'bg-primary'
+                  }`}
+                  style={{ width: `${Math.min(usageStats.usedPercentage, 100)}%` }}
+                />
+              </div>
+            </div>
+            <div className="p-4 border border-border rounded-lg">
+              <p className="text-sm text-muted-foreground">Per Minute</p>
+              <p className="text-lg font-semibold text-foreground">{usageStats.rateLimitPerMinute}</p>
+            </div>
+            <div className="p-4 border border-border rounded-lg">
+              <p className="text-sm text-muted-foreground">Per Hour</p>
+              <p className="text-lg font-semibold text-foreground">{usageStats.rateLimitPerHour.toLocaleString()}</p>
+            </div>
+            <div className="p-4 border border-border rounded-lg">
+              <p className="text-sm text-muted-foreground">Per Day</p>
+              <p className="text-lg font-semibold text-foreground">{usageStats.rateLimitPerDay.toLocaleString()}</p>
+            </div>
           </div>
-          <div className="p-4 border border-border rounded-lg">
-            <p className="text-sm text-muted-foreground">Per Hour</p>
-            <p className="text-lg font-semibold text-foreground">{mockUsageStats.rateLimitPerHour}</p>
-          </div>
-          <div className="p-4 border border-border rounded-lg">
-            <p className="text-sm text-muted-foreground">Per Day</p>
-            <p className="text-lg font-semibold text-foreground">{mockUsageStats.rateLimitPerDay}</p>
-          </div>
-        </div>
+        )}
 
         <h3 className="font-medium text-foreground mt-6">Top API Endpoints</h3>
         <div className="space-y-2">
-          {mockUsageStats.topEndpoints.map((endpoint, index) => (
+          {topEndpoints.map((endpoint, index) => (
             <div key={index} className="flex items-center justify-between p-3 bg-muted/30 rounded-lg">
               <p className="text-sm text-foreground">{endpoint.path}</p>
               <span className="text-sm text-muted-foreground">{endpoint.requests} requests ({endpoint.percentage}%)</span>
@@ -143,50 +247,19 @@ const APIAccessSection = () => {
       {/* API Keys */}
       <div className="border-t border-border pt-6">
         <h3 className="font-medium text-foreground mb-4">API Keys</h3>
-        <div className="space-y-4">
-          <div className="flex items-center space-x-2">
-            <input
-              type="text"
-              placeholder="New API Key Name"
-              className="flex-grow p-2 border border-border rounded-lg bg-background text-foreground"
-              value={newKeyName}
-              onChange={(e) => setNewKeyName(e.target.value)}
-            />
-            <Button onClick={handleCreateApiKey} disabled={isCreatingKey || !newKeyName.trim()}>
-              {isCreatingKey ? 'Creating...' : 'Create API Key'}
-            </Button>
+        <div className="bg-muted/50 border border-border rounded-lg p-6 text-center">
+          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Icon name="Clock" size={24} className="text-primary" />
           </div>
-
-          {loadingKeys ? (
-            <p className="text-muted-foreground">Loading API keys...</p>
-          ) : apiKeys.length === 0 ? (
-            <p className="text-muted-foreground">No API keys found. Create one above.</p>
-          ) : (
-            apiKeys.map((key) => (
-              <div key={key.id} className="flex items-center justify-between p-4 border border-border rounded-lg">
-                <div className="flex items-center space-x-3">
-                  <Icon name="Key" size={20} className="text-muted-foreground" />
-                  <div>
-                    <p className="font-medium text-foreground">{key.name}</p>
-                    <p className="text-sm text-muted-foreground">{key.permissions.join(', ')}</p>
-                    <p className="text-xs text-muted-foreground">{key.api_key.substring(0, 20)}...</p>
-                    <p className="text-xs text-muted-foreground">
-                      Created: {new Date(key.created_at).toLocaleDateString()} 
-                      {key.last_used_at && ` | Last used: ${new Date(key.last_used_at).toLocaleDateString()}`}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => handleDeleteApiKey(key.id)}
-                  iconName="Trash"
-                >
-                  Delete
-                </Button>
-              </div>
-            ))
-          )}
+          <h3 className="text-lg font-semibold text-foreground mb-2">
+            API Features Coming Soon
+          </h3>
+          <p className="text-muted-foreground mb-4">
+            API key management and programmatic access will be available in a future update.
+          </p>
+          <Button variant="outline" disabled>
+            Coming Soon
+          </Button>
         </div>
       </div>
 

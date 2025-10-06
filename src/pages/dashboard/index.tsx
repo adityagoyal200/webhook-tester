@@ -9,6 +9,9 @@ import RecentActivity from './components/RecentActivity';
 import SearchFilters from './components/SearchFilters';
 import UsageLimitBanner from './components/UsageLimitBanner';
 import DeleteConfirmModal from './components/DeleteConfirmModal';
+import RealtimeWebhookDashboard from './components/RealtimeWebhookDashboard';
+import FeatureTest from '../../components/FeatureTest';
+import DatabaseTest from '../../components/DatabaseTest';
 import { useAuth } from '../../contexts/AuthContext';
 import { webhookService } from '../../services/webhookService';
 import { userService } from '../../services/userService';
@@ -37,6 +40,7 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [showRealtimeDashboard, setShowRealtimeDashboard] = useState(false);
 
   // Real data from services
   const [webhooks, setWebhooks] = useState<Webhook[]>([]);
@@ -74,16 +78,24 @@ const Dashboard = () => {
       return;
     }
     
+    console.log('Loading dashboard data for user:', user.id);
     setLoading(true);
     setError(null);
 
     try {
-      await webhookService.backfillMissingWebhookUrls(user.id);
+      // Try to backfill missing webhook URLs (don't fail if this errors)
+      try {
+        await webhookService.backfillMissingWebhookUrls(user.id);
+      } catch (backfillError) {
+        console.warn('Failed to backfill webhook URLs:', backfillError);
+        // Continue loading webhooks even if backfill fails
+      }
 
       // Load webhooks
       const { data: webhooksData, error: webhooksError } = await webhookService.getUserWebhooks(user.id);
       if (webhooksError) {
-        setError(webhooksError.message);
+        console.error('Error loading webhooks:', webhooksError);
+        setError(`Failed to load webhooks: ${webhooksError.message}`);
         return;
       }
 
@@ -101,40 +113,60 @@ const Dashboard = () => {
       }));
 
       setWebhooks(transformedWebhooks);
+      console.log('Loaded webhooks:', transformedWebhooks.length);
 
       // Load user stats
-      const { data: statsData, error: statsError } = await userService.getUserStats(user.id);
-      if (statsData) {
-        setUserStats(statsData);
+      try {
+        const { data: statsData, error: statsError } = await userService.getUserStats(user.id);
+        if (statsError) {
+          console.error('Error loading user stats:', statsError);
+        } else if (statsData) {
+          setUserStats(statsData);
+        }
+      } catch (statsErr) {
+        console.error('Failed to load user stats:', statsErr);
       }
 
       // Load subscription limits
-      const { data: limitsData, error: limitsError } = await userService.checkSubscriptionLimits(user.id);
-      if (limitsData) {
-        setUserLimits(limitsData);
+      try {
+        const { data: limitsData, error: limitsError } = await userService.checkSubscriptionLimits(user.id);
+        if (limitsError) {
+          console.error('Error loading subscription limits:', limitsError);
+        } else if (limitsData) {
+          setUserLimits(limitsData);
+        }
+      } catch (limitsErr) {
+        console.error('Failed to load subscription limits:', limitsErr);
       }
 
       // Load recent activity
-      const { data: activityData, error: activityError } = await userService.getRecentActivity(user.id, 10);
-      if (activityData) {
-        const transformedActivity: Activity[] = (activityData || []).map((req: any) => ({
-          id: req.id,
-          webhookName: req.webhooks?.name || 'Unknown',
-          method: req.method,
-          status: req.status,
-          ip: req.ip_address,
-          userAgent: req.user_agent,
-          timestamp: new Date(req.created_at),
-          headers: req.headers,
-          payload: req.payload
-        }));
-        setRecentActivity(transformedActivity);
+      try {
+        const { data: activityData, error: activityError } = await userService.getRecentActivity(user.id, 10);
+        if (activityError) {
+          console.error('Error loading recent activity:', activityError);
+        } else if (activityData) {
+          const transformedActivity: Activity[] = (activityData || []).map((req: any) => ({
+            id: req.id,
+            webhookName: req.webhooks?.name || 'Unknown',
+            method: req.method,
+            status: req.status,
+            ip: req.ip_address,
+            userAgent: req.user_agent,
+            timestamp: new Date(req.created_at),
+            headers: req.headers,
+            payload: req.payload
+          }));
+          setRecentActivity(transformedActivity);
+        }
+      } catch (activityErr) {
+        console.error('Failed to load recent activity:', activityErr);
       }
 
     } catch (err) {
       setError('Failed to load dashboard data');
       console.error('Dashboard load error:', err);
     } finally {
+      console.log('Dashboard loading completed');
       setLoading(false);
     }
   };
@@ -260,7 +292,7 @@ const Dashboard = () => {
   };
 
   const handleUpgrade = () => {
-    navigate('/account-settings');
+    navigate('/pricing');
   };
 
   const handleViewActivityDetails = (activity: Activity) => {
@@ -310,6 +342,8 @@ const Dashboard = () => {
       <Header />
       <main className="pt-16">
         <div className="max-w-7xl mx-auto px-6 py-8">
+          <FeatureTest />
+          <DatabaseTest />
           {/* Success Message */}
           {successMessage && (
             <div className="mb-6 bg-success/10 border border-success/20 rounded-lg p-4 flex items-center space-x-3">
@@ -350,7 +384,14 @@ const Dashboard = () => {
                 Manage your webhook URLs and monitor incoming requests in real-time
               </p>
             </div>
-            <div className="mt-4 lg:mt-0">
+            <div className="flex space-x-3 mt-4 lg:mt-0">
+              <Button
+                variant="outline"
+                onClick={() => setShowRealtimeDashboard(!showRealtimeDashboard)}
+                iconName={showRealtimeDashboard ? "BarChart3" : "Activity"}
+              >
+                {showRealtimeDashboard ? 'Standard View' : 'Real-time View'}
+              </Button>
               <Button
                 variant="default"
                 size="lg"
@@ -370,9 +411,15 @@ const Dashboard = () => {
             webhookLimit={userLimits.webhookLimit}
             requestCount={userLimits.currentRequests}
             requestLimit={userLimits.requestLimit}
+            dailyRequestCount={userLimits.dailyRequests}
             onUpgrade={handleUpgrade}
           />
 
+          {/* Real-time Dashboard */}
+          {showRealtimeDashboard ? (
+            <RealtimeWebhookDashboard />
+          ) : (
+            <>
           {/* Stats Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <StatsCard
@@ -501,6 +548,8 @@ const Dashboard = () => {
               />
             </div>
           </div>
+            </>
+          )}
         </div>
       </main>
       {/* Delete Confirmation Modal */}

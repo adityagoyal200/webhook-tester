@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import type { IconName } from '../../components/AppIcon';
 import ContextualHeader from '../../components/ui/ContextualHeader';
 import WebhookHeader from './components/WebhookHeader';
@@ -32,11 +32,17 @@ interface Filters {
 }
 
 const WebhookDetails = () => {
-  const { id } = useParams();
+  const { id: routeId } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  
+  // Get ID from either route params or query params
+  const id = routeId || searchParams.get('id');
   
   // Loaded webhook data
   const [webhook, setWebhook] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Loaded requests data
   const [allRequests, setAllRequests] = useState<RequestRecord[]>([]);
@@ -83,10 +89,29 @@ const WebhookDetails = () => {
   // Load webhook and requests from Supabase and subscribe to realtime
   useEffect(() => {
     const loadData = async () => {
-      if (!id) return;
+      if (!id) {
+        setError('No webhook ID provided');
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+
       try {
-        const { data: webhookData } = await webhookService.getWebhook(id);
+        console.log('Loading webhook details for ID:', id);
+        
+        const { data: webhookData, error: webhookError } = await webhookService.getWebhook(id);
+        
+        if (webhookError) {
+          console.error('Error loading webhook:', webhookError);
+          setError(`Failed to load webhook: ${webhookError.message}`);
+          setLoading(false);
+          return;
+        }
+
         if (webhookData) {
+          console.log('Webhook data loaded:', webhookData);
           setWebhook({
             id: webhookData.id,
             name: webhookData.name,
@@ -99,13 +124,22 @@ const WebhookDetails = () => {
           });
         }
 
-        const { data: requestsData } = await webhookService.getWebhookRequests(id, 1, 50);
-        if (requestsData) {
+        const { data: requestsData, error: requestsError } = await webhookService.getWebhookRequests(id, 1, 50);
+        
+        if (requestsError) {
+          console.error('Error loading requests:', requestsError);
+          // Don't overwrite webhook error with requests error
+          if (!webhook) {
+            setError(`Failed to load requests: ${requestsError.message}`);
+          }
+        } else if (requestsData) {
+          console.log('Requests data loaded:', requestsData.length, 'requests');
+          console.log('Raw requests data:', requestsData);
           const transformed = requestsData.map((r: any) => ({
             id: r.id,
             timestamp: new Date(r.created_at),
             method: (r.method || 'POST') as HTTPMethod,
-            status: r.response_status ?? 200,
+            status: r.status ?? 200,
             ipAddress: r.ip_address || 'unknown',
             payloadSize: r.payload ? JSON.stringify(r.payload).length : 0,
             responseTime: r.processing_time_ms ?? 0,
@@ -123,7 +157,7 @@ const WebhookDetails = () => {
               id: newRecord.id,
               timestamp: new Date(newRecord.created_at),
               method: (newRecord.method || 'POST') as HTTPMethod,
-              status: newRecord.response_status ?? 200,
+              status: newRecord.status ?? 200,
               ipAddress: newRecord.ip_address || 'unknown',
               payloadSize: newRecord.payload ? JSON.stringify(newRecord.payload).length : 0,
               responseTime: newRecord.processing_time_ms ?? 0,
@@ -138,7 +172,10 @@ const WebhookDetails = () => {
 
         return () => webhookService.unsubscribeFromWebhookRequests(channel);
       } catch (e) {
-        // swallow errors in UI
+        console.error('Error loading webhook details:', e);
+        setError(`Failed to load webhook details: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      } finally {
+        setLoading(false);
       }
     };
     loadData();
@@ -194,25 +231,45 @@ const WebhookDetails = () => {
 
   const handleSendTestWebhook = async (testData: any) => {
     try {
-      // Send the test webhook
-      const response = await fetch(webhook?.url || testData.url, {
-        method: testData.method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...testData.headers
-        },
-        body: testData.method !== 'GET' ? JSON.stringify(testData.payload) : undefined
-      });
+      console.log('Creating test webhook request:', testData);
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      if (!id) {
+        throw new Error('No webhook ID available');
       }
 
-      if (id) {
-        await webhookService.testWebhook(id, testData.payload ?? {});
+      // Use the webhookService.testWebhook method which creates a test request record
+      const { data, error } = await webhookService.testWebhook(
+        id, 
+        testData.payload ?? {}, 
+        testData.method || 'POST', 
+        testData.headers || {}
+      );
+
+      if (error) {
+        console.error('Failed to create test webhook request:', error);
+        throw new Error(`Failed to create test request: ${error.message}`);
       }
 
-      console.log('Test webhook sent successfully');
+      console.log('Test webhook request created successfully:', data);
+      
+      // Refresh the requests list to show the new test request
+      const { data: requestsData } = await webhookService.getWebhookRequests(id, 1, 50);
+      if (requestsData) {
+        const transformed = requestsData.map((r: any) => ({
+          id: r.id,
+          timestamp: new Date(r.created_at),
+          method: (r.method || 'POST') as HTTPMethod,
+          status: r.status ?? 200,
+          ipAddress: r.ip_address || 'unknown',
+          payloadSize: r.payload ? JSON.stringify(r.payload).length : 0,
+          responseTime: r.processing_time_ms ?? 0,
+          payload: r.payload ?? null,
+          headers: r.headers ?? {},
+          responseHeaders: {}
+        }));
+        setAllRequests(transformed);
+      }
+
     } catch (error) {
       console.error('Failed to send test webhook:', error);
       throw error;
@@ -276,6 +333,56 @@ const WebhookDetails = () => {
       onClick: () => navigate('/create-webhook')
     }
   ];
+
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading webhook details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="bg-error/10 border border-error/20 rounded-lg p-6">
+            <h3 className="text-error font-medium mb-2">Error Loading Webhook</h3>
+            <p className="text-error/80 mb-4">{error}</p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-error text-white rounded-md hover:bg-error/80"
+            >
+              Try Again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show no webhook found state
+  if (!webhook) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <h3 className="text-foreground font-medium mb-2">Webhook Not Found</h3>
+          <p className="text-muted-foreground mb-4">The webhook with ID "{id}" could not be found.</p>
+          <button
+            onClick={() => navigate('/dashboard')}
+            className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary/80"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

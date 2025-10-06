@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import FeatureGate from '../../../components/FeatureGate';
 
 const WebhookTable = ({ webhooks, onCopyUrl, onViewRequests, onDeleteWebhook }) => {
   const [copiedId, setCopiedId] = useState(null);
@@ -93,15 +94,17 @@ const WebhookTable = ({ webhooks, onCopyUrl, onViewRequests, onDeleteWebhook }) 
                 </td>
                 <td className="py-4 px-4">
                   <div className="flex items-center justify-end space-x-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => onViewRequests(webhook)}
-                      iconName="Eye"
-                      iconPosition="left"
-                    >
-                      View
-                    </Button>
+                    <FeatureGate feature="webhookHistory">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => onViewRequests(webhook)}
+                        iconName="Eye"
+                        iconPosition="left"
+                      >
+                        View
+                      </Button>
+                    </FeatureGate>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -161,16 +164,18 @@ const WebhookTable = ({ webhooks, onCopyUrl, onViewRequests, onDeleteWebhook }) 
             </div>
 
             <div className="flex items-center space-x-2 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onViewRequests(webhook)}
-                iconName="Eye"
-                iconPosition="left"
-                className="flex-1"
-              >
-                View Requests
-              </Button>
+              <FeatureGate feature="webhookHistory">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onViewRequests(webhook)}
+                  iconName="Eye"
+                  iconPosition="left"
+                  className="flex-1"
+                >
+                  View Requests
+                </Button>
+              </FeatureGate>
               <Button
                 variant="ghost"
                 size="icon"

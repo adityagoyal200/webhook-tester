@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { useAuth } from '../../../contexts/AuthContext';
 import { userService } from '../../../services/userService';
+import { webhookService } from '../../../services/webhookService';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import FeatureGate from '../../../components/FeatureGate';
 import Select from '../../../components/ui/Select';
 
 const PrivacySection = () => {
@@ -12,6 +14,8 @@ const PrivacySection = () => {
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [isExporting, setIsExporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
 
   const retentionOptions = [
     { value: '1', label: '1 day' },
@@ -39,20 +43,100 @@ const PrivacySection = () => {
   };
 
   const handleDataExport = async () => {
+    if (!user?.id) {
+      setError('No authenticated user found');
+      return;
+    }
+
     setIsExporting(true);
     setExportProgress(0);
-    
-    // Mock export progress
-    const interval = window.setInterval(() => {
-      setExportProgress(prev => {
-        if (prev >= 100) {
-          window.clearInterval(interval);
-          setIsExporting(false);
-          return 100;
+    setError(null);
+    setSuccess(null);
+
+    try {
+      // Step 1: Export user profile (25%)
+      setExportProgress(25);
+      const { data: profile, error: profileError } = await userService.getUserProfile(user.id);
+      if (profileError) {
+        throw new Error(`Failed to export profile: ${profileError.message}`);
+      }
+
+      // Step 2: Export webhooks (50%)
+      setExportProgress(50);
+      const { data: webhooks, error: webhooksError } = await webhookService.getUserWebhooks(user.id);
+      if (webhooksError) {
+        throw new Error(`Failed to export webhooks: ${webhooksError.message}`);
+      }
+
+      // Step 3: Export webhook requests (75%)
+      setExportProgress(75);
+      let allRequests: any[] = [];
+      if (webhooks && webhooks.length > 0) {
+        for (const webhook of webhooks) {
+          const { data: requests } = await webhookService.getWebhookRequests(webhook.id, 1000); // Get up to 1000 requests per webhook
+          if (requests) {
+            allRequests = [...allRequests, ...requests];
+          }
         }
-        return prev + 10;
-      });
-    }, 200);
+      }
+
+      // Step 4: Create export data (100%)
+      setExportProgress(100);
+      const exportData = {
+        exportDate: new Date().toISOString(),
+        user: {
+          id: user.id,
+          email: user.email,
+          profile: profile
+        },
+        webhooks: webhooks?.map((wh: any) => ({
+          id: wh.id,
+          name: wh.name,
+          url: wh.url,
+          status: wh.status,
+          created_at: wh.created_at,
+          settings: wh.settings
+        })) || [],
+        webhookRequests: allRequests?.map(req => ({
+          id: req.id,
+          webhook_id: req.webhook_id,
+          method: req.method,
+          status: req.status,
+          ip_address: req.ip_address,
+          payload: req.payload,
+          headers: req.headers,
+          response_status: req.response_status,
+          processing_time_ms: req.processing_time_ms,
+          created_at: req.created_at
+        })) || [],
+        summary: {
+          totalWebhooks: webhooks?.length || 0,
+          totalRequests: allRequests.length,
+          exportTimestamp: new Date().toISOString()
+        }
+      };
+
+      // Download the export file
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `hookcatch-export-${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      setSuccess('Data export completed successfully!');
+      setTimeout(() => setSuccess(null), 5000);
+
+    } catch (err) {
+      console.error('Data export error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to export data');
+    } finally {
+      setIsExporting(false);
+      setTimeout(() => setExportProgress(0), 2000);
+    }
   };
 
   const privacyFeatures = [
@@ -94,6 +178,21 @@ const PrivacySection = () => {
           <span className="text-sm font-medium text-success">GDPR Compliant</span>
         </div>
       </div>
+
+      {/* Error/Success Messages */}
+      {error && (
+        <div className="p-3 bg-error/10 border border-error/20 rounded-lg flex items-center space-x-2 mb-6">
+          <Icon name="AlertTriangle" size={16} className="text-error" />
+          <span className="text-sm text-error">{error}</span>
+        </div>
+      )}
+      
+      {success && (
+        <div className="p-3 bg-success/10 border border-success/20 rounded-lg flex items-center space-x-2 mb-6">
+          <Icon name="Check" size={16} className="text-success" />
+          <span className="text-sm text-success">{success}</span>
+        </div>
+      )}
       {/* Privacy Features */}
       <div className="grid gap-4 mb-6">
         {privacyFeatures?.map((feature, index) => (
@@ -128,13 +227,15 @@ const PrivacySection = () => {
       <div className="border-t border-border pt-6">
         <h3 className="font-medium text-foreground mb-4">Data Rights</h3>
         <div className="flex flex-col sm:flex-row gap-3">
-          <Button
-            variant="outline"
-            onClick={() => setShowExportModal(true)}
-            iconName="Download"
-          >
-            Export My Data
-          </Button>
+          <FeatureGate feature="dataExport">
+            <Button
+              variant="outline"
+              onClick={() => setShowExportModal(true)}
+              iconName="Download"
+            >
+              Export My Data
+            </Button>
+          </FeatureGate>
           <Button
             variant="destructive"
             onClick={() => setShowDataDeletionConfirm(true)}
@@ -168,20 +269,24 @@ const PrivacySection = () => {
               <div className="space-y-4">
                 <p className="text-sm text-muted-foreground">
                   Export all your webhook data including URLs, request history, and account information 
-                  in JSON format. This may take a few minutes.
+                  in JSON format. This may take a few minutes depending on your data size.
                 </p>
                 <div className="space-y-2">
                   <div className="flex items-center space-x-2">
                     <Icon name="Check" size={16} className="text-success" />
-                    <span className="text-sm text-muted-foreground">Webhook URLs and configurations</span>
+                    <span className="text-sm text-muted-foreground">User profile and account information</span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <Icon name="Check" size={16} className="text-success" />
-                    <span className="text-sm text-muted-foreground">Request history and payloads</span>
+                    <span className="text-sm text-muted-foreground">All webhook URLs and configurations</span>
                   </div>
                   <div className="flex items-center space-x-2">
                     <Icon name="Check" size={16} className="text-success" />
-                    <span className="text-sm text-muted-foreground">Account settings and preferences</span>
+                    <span className="text-sm text-muted-foreground">Complete request history and payloads</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Icon name="Check" size={16} className="text-success" />
+                    <span className="text-sm text-muted-foreground">Response data and processing times</span>
                   </div>
                 </div>
                 <div className="flex space-x-3">
@@ -201,7 +306,10 @@ const PrivacySection = () => {
                 <div className="text-center">
                   <Icon name="Download" size={32} className="text-primary mx-auto mb-2" />
                   <p className="text-sm text-muted-foreground">
-                    {exportProgress < 100 ? 'Preparing your data export...' : 'Export completed!'}
+                    {exportProgress < 25 ? 'Exporting user profile...' :
+                     exportProgress < 50 ? 'Exporting webhooks...' :
+                     exportProgress < 75 ? 'Exporting request history...' :
+                     exportProgress < 100 ? 'Finalizing export...' : 'Export completed!'}
                   </p>
                 </div>
                 <div className="w-full bg-muted rounded-full h-2">
@@ -215,15 +323,13 @@ const PrivacySection = () => {
                 </div>
                 {exportProgress === 100 && (
                   <div className="flex space-x-3">
-                    <Button fullWidth iconName="Download">
-                      Download Export
-                    </Button>
                     <Button 
                       variant="outline" 
                       onClick={() => {
                         setShowExportModal(false);
                         setExportProgress(0);
                       }}
+                      fullWidth
                     >
                       Close
                     </Button>

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import FeatureGate from '../../../components/FeatureGate';
 
 interface WebhookSummary {
   name?: string;
@@ -104,13 +105,15 @@ const WebhookHeader = ({ webhook, onCopyUrl, onDeleteWebhook, onTestWebhook }: W
         </div>
 
         <div className="flex flex-col sm:flex-row gap-2">
-          <Button
-            variant="default"
-            iconName="Play"
-            onClick={onTestWebhook}
-          >
-            Test Webhook
-          </Button>
+          <FeatureGate feature="webhookTesting">
+            <Button
+              variant="default"
+              iconName="Play"
+              onClick={onTestWebhook}
+            >
+              Test Webhook
+            </Button>
+          </FeatureGate>
           <Button
             variant="outline"
             iconName="Settings"

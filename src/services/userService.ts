@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { pricingService, PRICING_TIERS } from './pricingService';
 
 export const userService = {
   async getUserProfile(userId: string) {
@@ -265,6 +266,13 @@ export const userService = {
         return { data: null, error: profileError };
       }
 
+      const tierId = profile?.subscription_tier || 'free';
+      const tier = pricingService.getTier(tierId);
+
+      if (!tier) {
+        return { data: null, error: { message: 'Invalid subscription tier' } };
+      }
+
       const { count: currentWebhooks, error: webhookError } = await supabase
         ?.from('webhooks')
         ?.select('*', { count: 'exact', head: true })
@@ -306,14 +314,45 @@ export const userService = {
 
       // requestsError handled within the block above when webhookIds2 is non-empty
 
+      const webhookLimit = tier.limits.webhooks === -1 ? Infinity : tier.limits.webhooks;
+      const requestLimit = tier.limits.requestsPerMonth === -1 ? Infinity : tier.limits.requestsPerMonth;
+      
+      // For free tier, also check daily limits
+      let dailyRequestCount = 0;
+      if (tierId === 'free' && currentMonthRequests > 0) {
+        // Get today's date range
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const tomorrow = new Date(today);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        
+        // Count requests from today
+        if (webhookIds2.length) {
+          const { count: todayRequestsCount } = await supabase
+            ?.from('webhook_requests')
+            ?.select('webhook_id', { count: 'exact', head: true })
+            ?.in('webhook_id', webhookIds2)
+            ?.gte('created_at', today.toISOString())
+            ?.lt('created_at', tomorrow.toISOString());
+          
+          dailyRequestCount = todayRequestsCount || 0;
+        }
+      }
+      
       const limits = {
-        webhookLimit: profile?.webhook_limit || 5,
-        requestLimit: profile?.request_limit || 1000,
+        tier: tierId,
+        tierName: tier.name,
+        webhookLimit: webhookLimit,
+        requestLimit: requestLimit,
         currentWebhooks: currentWebhooks || 0,
         currentRequests: currentMonthRequests || 0,
-        canCreateWebhook: (currentWebhooks || 0) < (profile?.webhook_limit || 5),
-        webhookUsagePercent: Math.round(((currentWebhooks || 0) / (profile?.webhook_limit || 5)) * 100),
-        requestUsagePercent: Math.round(((currentMonthRequests || 0) / (profile?.request_limit || 1000)) * 100)
+        dailyRequests: dailyRequestCount,
+        canCreateWebhook: (currentWebhooks || 0) < webhookLimit,
+        webhookUsagePercent: webhookLimit === Infinity ? 0 : Math.round(((currentWebhooks || 0) / webhookLimit) * 100),
+        requestUsagePercent: requestLimit === Infinity ? 0 : Math.round(((currentMonthRequests || 0) / requestLimit) * 100),
+        dailyUsagePercent: tierId === 'free' ? Math.round((dailyRequestCount / 5) * 100) : 0,
+        tierLimits: tier.limits,
+        tierFeatures: tier.features
       };
 
       return { data: limits, error: null };
