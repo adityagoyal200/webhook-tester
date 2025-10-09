@@ -78,6 +78,11 @@ const ProfileSection = () => {
   };
 
   const handlePasswordChange = async () => {
+    if (!formData.currentPassword) {
+      setError('Current password is required');
+      return;
+    }
+
     if (formData.newPassword !== formData.confirmPassword) {
       setError('New passwords do not match');
       return;
@@ -92,7 +97,7 @@ const ProfileSection = () => {
     setError(null);
 
     try {
-      const { error: passwordError } = await updatePassword(formData.newPassword);
+      const { error: passwordError } = await updatePassword(formData.currentPassword, formData.newPassword);
 
       if (passwordError) {
         setError(passwordError.message || 'Failed to update password');
@@ -279,6 +284,30 @@ const ProfileSection = () => {
             </div>
           </div>
         )}
+
+        {/* Account Actions */}
+        <div className="border-t border-border pt-6 mt-8">
+          <h3 className="text-lg font-semibold text-foreground mb-4">Account Actions</h3>
+          
+          <div className="space-y-4">
+            <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
+              <div>
+                <h4 className="font-medium text-foreground">Sign Out</h4>
+                <p className="text-sm text-muted-foreground">Sign out of your account on this device</p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  await signOut();
+                }}
+                iconName="LogOut"
+                size="sm"
+              >
+                Sign Out
+              </Button>
+            </div>
+          </div>
+        </div>
 
         {/* Danger Zone */}
         <div className="border-t border-border pt-6 mt-8">

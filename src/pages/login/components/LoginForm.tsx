@@ -76,23 +76,34 @@ const LoginForm = () => {
     setErrors({});
     
     try {
+      console.log('Attempting login for:', formData.email);
       const { data, error } = await signIn(formData?.email, formData?.password);
       
       if (error) {
+        console.error('Login error:', error);
         setErrors({
           general: error?.message || 'Login failed. Please try again.'
         });
       } else if (data?.user) {
+        console.log('Login successful, redirecting to dashboard');
         // Store remember me preference
         if (formData?.rememberMe) {
           localStorage.setItem('rememberMe', 'true');
+        } else {
+          localStorage.removeItem('rememberMe');
         }
         
+        // Redirect to dashboard
         navigate('/dashboard');
+      } else {
+        setErrors({
+          general: 'Login failed. Please check your credentials and try again.'
+        });
       }
     } catch (error) {
+      console.error('Login error:', error);
       setErrors({
-        general: 'Network error. Please try again.'
+        general: 'Network error. Please check your connection and try again.'
       });
     } finally {
       setIsLoading(false);

@@ -15,7 +15,7 @@ type AuthContextValue = {
   signUp: (email: string, password: string, metadata?: Record<string, any>) => Promise<any>;
   signOut: () => Promise<any>;
   resetPassword: (email: string) => Promise<any>;
-  updatePassword: (password: string) => Promise<any>;
+  updatePassword: (currentPassword: string, newPassword: string) => Promise<any>;
   updateProfile: (updates: Record<string, any>) => Promise<{ data?: any; error?: any }>;
   refreshProfile: () => Promise<{ data?: any; error?: any }>;
   isAuthenticated: boolean;
@@ -114,20 +114,37 @@ export const AuthProvider = ({ children }: { children?: ReactNode }) => {
   }
 
   const signOut = async () => {
-    const result = await authService?.signOut()
-    if (!result?.error) {
-      setUser(null)
-      profileOperations?.clear()
+    try {
+      console.log('Signing out user');
+      const result = await authService?.signOut()
+      
+      if (!result?.error) {
+        console.log('Sign out successful, clearing user state');
+        setUser(null)
+        profileOperations?.clear()
+        
+        // Clear any stored data
+        localStorage.removeItem('rememberMe');
+        
+        // Redirect to login page
+        window.location.href = '/login';
+      } else {
+        console.error('Sign out error:', result.error);
+      }
+      
+      return result
+    } catch (error) {
+      console.error('Sign out error:', error);
+      return { error: { message: 'Failed to sign out. Please try again.' } }
     }
-    return result
   }
 
   const resetPassword = async (email: string) => {
     return await authService?.resetPassword(email);
   }
 
-  const updatePassword = async (password: string) => {
-    return await authService?.updatePassword({ currentPassword: '', newPassword: password });
+  const updatePassword = async (currentPassword: string, newPassword: string) => {
+    return await authService?.updatePassword({ currentPassword, newPassword });
   }
 
   const updateProfile = async (updates: Record<string, any>) => {

@@ -124,10 +124,13 @@ const RegistrationForm = ({ selectedTier, onSubmit, className = '' }: Registrati
       );
 
       if (error) {
+        console.error('Registration error:', error);
         setErrors({
           general: error?.message || 'Registration failed. Please try again.'
         });
       } else if (data?.user) {
+        console.log('Registration successful:', data.user.id);
+        
         if (onSubmit) {
           onSubmit({
             ...formData,
@@ -135,14 +138,20 @@ const RegistrationForm = ({ selectedTier, onSubmit, className = '' }: Registrati
           });
         }
         
-        // If a session exists, user is already logged in; otherwise require email confirmation
+        // Check if user needs email confirmation
         if ((data as any)?.session) {
+          console.log('User is already authenticated, redirecting to dashboard');
           navigate('/dashboard');
         } else {
+          console.log('User needs email confirmation');
           setErrors({
-            general: 'Please check your email for the confirmation link to activate your account.'
+            general: 'Registration successful! Please check your email for the confirmation link to activate your account.'
           });
         }
+      } else {
+        setErrors({
+          general: 'Registration failed. Please try again.'
+        });
       }
     } catch (error) {
       setErrors({

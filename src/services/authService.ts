@@ -64,6 +64,8 @@ export const authService = {
   // Sign up with email and password
   async signUp(email: string, password: string, metadata: Record<string, any> = {}) {
     try {
+      console.log('AuthService signUp:', { email, metadata });
+      
       const { data, error } = await supabase?.auth?.signUp({
         email,
         password,
@@ -72,30 +74,10 @@ export const authService = {
         }
       });
 
-      const ipResponse = await fetch('https://api.ipify.org?format=json');
-      const ipData = await ipResponse.json();
-      const ipAddress = ipData.ip;
-      const userAgent = navigator.userAgent;
-
-      if (data?.user) {
-        await supabase.from('login_history').insert({
-          user_id: data.user.id,
-          ip_address: ipAddress,
-          device_info: userAgent,
-          status: 'success',
-        });
-      }
+      console.log('Supabase signUp response:', { data, error });
 
       if (error) {
-        // Log failed signup attempt if user ID is available
-        if (data?.user?.id) {
-          await supabase.from('login_history').insert({
-            user_id: data.user.id,
-            ip_address: ipAddress,
-            device_info: userAgent,
-            status: 'failed',
-          });
-        }
+        console.error('Signup error:', error);
         if (error?.message?.includes('User already registered')) {
           return {
             data: null,
@@ -105,8 +87,61 @@ export const authService = {
         return { data: null, error };
       }
 
+      // If signup was successful and user was created
+      if (data?.user) {
+        console.log('User created successfully:', data.user.id);
+        
+        // The handle_new_user trigger should automatically create the profile
+        // But let's also manually ensure the profile is created with the correct metadata
+        try {
+          const profileData = {
+            id: data.user.id,
+            email: data.user.email,
+            full_name: metadata?.full_name || metadata?.fullName || email.split('@')[0],
+            subscription_tier: metadata?.subscription_tier || 'free'
+          };
+
+          console.log('Creating user profile:', profileData);
+          
+          const { data: profileResult, error: profileError } = await supabase
+            ?.from('user_profiles')
+            ?.upsert(profileData, { onConflict: 'id' })
+            ?.select()
+            ?.single();
+
+          if (profileError) {
+            console.error('Profile creation error:', profileError);
+            // Don't fail the signup if profile creation fails - the trigger should handle it
+          } else {
+            console.log('Profile created successfully:', profileResult);
+          }
+        } catch (profileErr) {
+          console.error('Profile creation error:', profileErr);
+          // Don't fail the signup if profile creation fails
+        }
+
+        // Log successful signup
+        try {
+          const ipResponse = await fetch('https://api.ipify.org?format=json');
+          const ipData = await ipResponse.json();
+          const ipAddress = ipData.ip;
+          const userAgent = navigator.userAgent;
+
+          await supabase.from('login_history').insert({
+            user_id: data.user.id,
+            ip_address: ipAddress,
+            device_info: userAgent,
+            status: 'success',
+          });
+        } catch (logErr) {
+          console.error('Login history logging error:', logErr);
+          // Don't fail signup if logging fails
+        }
+      }
+
       return { data, error: null };
     } catch (err: unknown) {
+      console.error('Signup error:', err);
       // Handle network/connection errors
       if (err instanceof Error && (err.message?.includes('Failed to fetch') || 
           err.message?.includes('NetworkError'))) {

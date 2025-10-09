@@ -36,6 +36,30 @@ export const userService = {
   // Permanently delete all user-owned data (webhooks, requests, analytics, profile)
   async deleteUserAccount(userId: string) {
     try {
+      console.log('Deleting user account:', userId);
+
+      // Delete API keys first
+      const { error: apiKeysError } = await supabase
+        ?.from('api_keys')
+        ?.delete()
+        ?.eq('user_id', userId);
+
+      if (apiKeysError) {
+        console.error('API keys deletion error:', apiKeysError);
+        return { error: apiKeysError };
+      }
+
+      // Delete login history
+      const { error: loginHistoryError } = await supabase
+        ?.from('login_history')
+        ?.delete()
+        ?.eq('user_id', userId);
+
+      if (loginHistoryError) {
+        console.error('Login history deletion error:', loginHistoryError);
+        return { error: loginHistoryError };
+      }
+
       // Delete all webhooks owned by the user. Foreign keys will cascade to requests/analytics.
       const { error: webhooksError } = await supabase
         ?.from('webhooks')
@@ -43,6 +67,7 @@ export const userService = {
         ?.eq('user_id', userId);
 
       if (webhooksError) {
+        console.error('Webhooks deletion error:', webhooksError);
         return { error: webhooksError };
       }
 
@@ -53,11 +78,14 @@ export const userService = {
         ?.eq('id', userId);
 
       if (profileError) {
+        console.error('Profile deletion error:', profileError);
         return { error: profileError };
       }
 
+      console.log('User account deleted successfully:', userId);
       return { error: null };
     } catch (err: unknown) {
+      console.error('Account deletion error:', err);
       if (err instanceof Error && err.message?.includes('Failed to fetch')) {
         return { 
           error: { message: 'Cannot connect to database. Your Supabase project may be paused or deleted. Please check your Supabase dashboard.' }
